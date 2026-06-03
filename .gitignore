@@ -28,6 +28,9 @@ yarn-error.log*
 # local env files
 .env*.local
 
+# google credentials (包含 OAuth 密钥，绝不能提交！)
+gmail-credentials.json
+
 # vercel
 .vercel
 

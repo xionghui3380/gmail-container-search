@@ -1,0 +1,40 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="Eslint" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="PyPackageRequirementsInspection" enabled="false" level="WARNING" enabled_by_default="false">
+      <option name="ignoredPackages">
+        <list>
+          <option value="fastapi" />
+          <option value="uvicorn" />
+          <option value="python-multipart" />
+          <option value="opencv-python" />
+          <option value="paddlepaddle" />
+          <option value="paddleocr" />
+          <option value="numpy" />
+          <option value="Pillow" />
+          <option value="requests" />
+          <option value="langchain" />
+          <option value="sentence-transformers" />
+          <option value="pymilvus" />
+          <option value="pymysql" />
+          <option value="redis" />
+          <option value="minio" />
+          <option value="pypdf" />
+          <option value="python-docx" />
+          <option value="openai" />
+          <option value="neo4j" />
+          <option value="python-dotenv" />
+        </list>
+      </option>
+    </inspection_tool>
+    <inspection_tool class="PyStubPackagesAdvertiser" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <list>
+          <option value="pandas" />
+          <option value="traits" />
+        </list>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>

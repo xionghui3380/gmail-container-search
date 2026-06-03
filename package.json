@@ -4,23 +4,45 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "db:generate": "prisma generate",
+    "db:seed": "tsx prisma/seed.ts",
+    "import:orders": "tsx scripts/import-order-sheet.ts"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@prisma/client": "^5.22.0",
+    "bcryptjs": "^3.0.3",
+    "date-fns": "^4.4.0",
+    "exceljs": "^4.4.0",
+    "google-auth-library": "^10.6.2",
+    "googleapis": "^173.0.0",
+    "jose": "^6.2.3",
+    "lucide-react": "^0.468.0",
+    "next": "14.2.35",
+    "prisma": "^5.22.0",
     "react": "^18",
     "react-dom": "^18",
-    "next": "14.2.35"
+    "sonner": "^2.0.7",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@types/bcryptjs": "^3.0.0",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.35",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
-    "eslint": "^8",
-    "eslint-config-next": "14.2.35"
+    "tsx": "^4.22.4",
+    "typescript": "^5"
   }
 }
