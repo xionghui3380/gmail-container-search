@@ -57,6 +57,15 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  if (
+    pathname === "/cargo" ||
+    pathname.startsWith("/cargo/") ||
+    pathname === "/customers" ||
+    pathname.startsWith("/customers/")
+  ) {
+    return NextResponse.redirect(new URL("/google-sheet", request.url));
+  }
+
   if (!token) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("redirect", pathname);

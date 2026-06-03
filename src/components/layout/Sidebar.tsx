@@ -2,23 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Container, LayoutDashboard, Package, Users } from "lucide-react";
+import { Container, LayoutDashboard } from "lucide-react";
 
 const navItems = [
   {
     href: "/google-sheet",
     label: "google_sheet",
     icon: Container,
-  },
-  {
-    href: "/cargo",
-    label: "货柜管理",
-    icon: Package,
-  },
-  {
-    href: "/customers",
-    label: "客户管理",
-    icon: Users,
   },
 ];
 
