@@ -60,13 +60,12 @@ export async function importOrderSheetRows(
 
       if (existing) {
         if (!upsert) continue;
+        const updateData = buildContainerUpdateInput(parsed.data, userId);
+        updateData.deleted_at = null;
+        updateData.users_containers_deleted_byTousers = { disconnect: true };
         await prisma.containers.update({
           where: { id: existing.id },
-          data: {
-            ...buildContainerUpdateInput(parsed.data, userId),
-            deleted_at: null,
-            deleted_by: null,
-          },
+          data: updateData,
         });
         updated += 1;
       } else {
