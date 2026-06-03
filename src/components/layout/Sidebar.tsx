@@ -6,8 +6,8 @@ import { Container, LayoutDashboard, Package, Users } from "lucide-react";
 
 const navItems = [
   {
-    href: "/containers",
-    label: "集装箱管理",
+    href: "/google-sheet",
+    label: "google_sheet",
     icon: Container,
   },
   {

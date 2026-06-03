@@ -19,13 +19,13 @@ export default function GmailAuthNotifier({ onConnected }: GmailAuthNotifierProp
     if (gmailOk === "true") {
       toast.success("Gmail 连接成功，可以搜索邮件了");
       onConnected?.();
-      router.replace("/containers");
+      router.replace("/google-sheet");
       return;
     }
 
     if (gmailError) {
       toast.error(`Gmail 授权失败：${decodeURIComponent(gmailError)}`);
-      router.replace("/containers");
+      router.replace("/google-sheet");
     }
   }, [searchParams, router, onConnected]);
 

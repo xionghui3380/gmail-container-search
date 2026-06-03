@@ -60,7 +60,7 @@ export async function PUT(request: Request, { params }: Params) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       return error("柜号已存在", 409);
     }
-    console.error("[containers PUT]", err);
+    console.error("[google-sheet PUT]", err);
     return error("更新失败", 500);
   }
 }

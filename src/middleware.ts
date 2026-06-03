@@ -6,7 +6,7 @@
  * 1. 公开路径（/login、登录/登出 API）直接放行
  * 2. API 请求：检查 Cookie 中是否有有效的 Access Token，无则返回 401
  * 3. 页面请求：
- *    - 已登录用户访问 /login → 重定向到 /containers
+ *    - 已登录用户访问 /login → 重定向到 /google-sheet
  *    - 未登录用户访问其他页面 → 重定向到 /login（附带 redirect 参数）
  *
  * 注意：middleware 运行在 Edge Runtime，不能使用 Node.js API（如 Prisma）
@@ -46,9 +46,15 @@ export function middleware(request: NextRequest) {
 
   if (pathname === "/login") {
     if (token) {
-      return NextResponse.redirect(new URL("/containers", request.url));
+      return NextResponse.redirect(new URL("/google-sheet", request.url));
     }
     return NextResponse.next();
+  }
+
+  if (pathname === "/containers" || pathname.startsWith("/containers/")) {
+    const url = request.nextUrl.clone();
+    url.pathname = pathname.replace(/^\/containers/, "/google-sheet");
+    return NextResponse.redirect(url);
   }
 
   if (!token) {

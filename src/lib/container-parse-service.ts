@@ -2,11 +2,11 @@ import type { parse_status, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { buildContainerCreateInput, buildContainerUpdateInput } from "@/lib/container-mapper";
 import {
-  mergeParseMeta,
-  setParseMetaFailed,
-  setParseMetaParsing,
-  upsertParseMeta,
-} from "@/lib/container-parse-meta";
+  setCargoParseFailed,
+  setCargoParsing,
+  updateCargoParseFields,
+} from "@/lib/cargo-parse-fields";
+import { upsertCargoFromGoogleSheet } from "@/lib/cargo-sync";
 import {
   deliveryItemToCreateInput,
   parseDeliveryExcelBuffer,
@@ -87,7 +87,7 @@ async function saveParsedDeliveryData(
     });
   }
 
-  await upsertParseMeta(tx, normalizedNo, {
+  await updateCargoParseFields(tx, normalizedNo, {
     parse_status: parseStatus,
     error_message: parsed.warnings.length > 0 ? parsed.warnings.join("；") : null,
     email_message_id: emailMeta.messageId,
@@ -98,10 +98,10 @@ async function saveParsedDeliveryData(
     is_correct: true,
   });
 
-  await tx.google_sheet.update({
+  await tx.containers.update({
     where: { id: containerId },
     data: {
-      users_google_sheet_updated_byTousers: { connect: { id: userId } },
+      users_containers_updated_byTousers: { connect: { id: userId } },
     },
   });
 
@@ -171,6 +171,20 @@ export async function importOrderSheetRows(
   return { created, updated, errors };
 }
 
+async function findCargoContainer(normalizedNo: string) {
+  const existing = await prisma.containers.findFirst({
+    where: { container_no: normalizedNo, deleted_at: null },
+  });
+  if (existing) return existing;
+
+  const sheet = await prisma.google_sheet.findFirst({
+    where: { container_no: normalizedNo, deleted_at: null },
+  });
+  if (!sheet) return null;
+
+  return upsertCargoFromGoogleSheet(sheet);
+}
+
 export async function importOrderSheetBuffer(buffer: Buffer, userId: bigint) {
   const parsed = await parseOrderSheetBuffer(buffer);
   const persist = await importOrderSheetRows(parsed.rows, userId, true);
@@ -185,14 +199,12 @@ export async function parseContainerEmail(
 ): Promise<ParseEmailResult> {
   const normalizedNo = containerNo.trim().toUpperCase();
 
-  const container = await prisma.google_sheet.findFirst({
-    where: { container_no: normalizedNo, deleted_at: null },
-  });
+  const container = await findCargoContainer(normalizedNo);
   if (!container) {
-    throw new Error(`柜号 ${normalizedNo} 不存在，请先导入订单表`);
+    throw new Error(`柜号 ${normalizedNo} 不存在，请先在 google_sheet 录入订单`);
   }
 
-  await setParseMetaParsing(normalizedNo);
+  await setCargoParsing(normalizedNo);
 
   try {
     const emails = await searchEmailsByContainer(
@@ -205,7 +217,7 @@ export async function parseContainerEmail(
     if (emails.length === 0) {
       await prisma.$transaction(async (tx) => {
         await writeParseLog(tx, normalizedNo, "search_email", "failed", "未找到相关邮件");
-        await setParseMetaFailed(tx, normalizedNo, "未找到相关邮件");
+        await setCargoParseFailed(tx, normalizedNo, "未找到相关邮件");
       });
       return {
         containerNo: normalizedNo,
@@ -225,7 +237,7 @@ export async function parseContainerEmail(
     if (!excelAttachment) {
       await prisma.$transaction(async (tx) => {
         await writeParseLog(tx, normalizedNo, "download_attachment", "failed", "邮件无 Excel 附件");
-        await setParseMetaFailed(tx, normalizedNo, "邮件无 Excel 附件", {
+        await setCargoParseFailed(tx, normalizedNo, "邮件无 Excel 附件", {
           email_message_id: detail.id,
           email_subject: detail.subject,
           email_from: detail.from,
@@ -255,7 +267,7 @@ export async function parseContainerEmail(
     if (parsed.items.length === 0) {
       await prisma.$transaction(async (tx) => {
         await writeParseLog(tx, normalizedNo, "parse_excel", "failed", "附件中无有效明细行");
-        await setParseMetaFailed(tx, normalizedNo, "附件中无有效明细行", {
+        await setCargoParseFailed(tx, normalizedNo, "附件中无有效明细行", {
           attachment_name: excelAttachment.filename,
         });
       });
@@ -306,7 +318,7 @@ export async function parseContainerEmail(
     const message = err instanceof Error ? err.message : String(err);
     await prisma.$transaction(async (tx) => {
       await writeParseLog(tx, normalizedNo, "parse_pipeline", "failed", message);
-      await setParseMetaFailed(tx, normalizedNo, message);
+      await setCargoParseFailed(tx, normalizedNo, message);
     });
     throw err;
   }
@@ -324,14 +336,12 @@ export async function parseContainerAttachment(
 ): Promise<ParseEmailResult> {
   const normalizedNo = containerNo.trim().toUpperCase();
 
-  const container = await prisma.google_sheet.findFirst({
-    where: { container_no: normalizedNo, deleted_at: null },
-  });
+  const container = await findCargoContainer(normalizedNo);
   if (!container) {
-    throw new Error(`柜号 ${normalizedNo} 不存在，请先导入订单表`);
+    throw new Error(`柜号 ${normalizedNo} 不存在，请先在 google_sheet 录入订单`);
   }
 
-  await setParseMetaParsing(normalizedNo);
+  await setCargoParsing(normalizedNo);
 
   try {
     const detail = await getEmailDetail(messageId, accessToken, refreshToken);
@@ -342,7 +352,7 @@ export async function parseContainerAttachment(
     if (!attachment?.isExcel) {
       await prisma.$transaction(async (tx) => {
         await writeParseLog(tx, normalizedNo, "download_attachment", "failed", "未找到 Excel 附件");
-        await setParseMetaFailed(tx, normalizedNo, "未找到 Excel 附件");
+        await setCargoParseFailed(tx, normalizedNo, "未找到 Excel 附件");
       });
       return {
         containerNo: normalizedNo,
@@ -366,7 +376,7 @@ export async function parseContainerAttachment(
     if (parsed.items.length === 0) {
       await prisma.$transaction(async (tx) => {
         await writeParseLog(tx, normalizedNo, "parse_excel", "failed", "附件中无有效明细行");
-        await setParseMetaFailed(tx, normalizedNo, "附件中无有效明细行", {
+        await setCargoParseFailed(tx, normalizedNo, "附件中无有效明细行", {
           attachment_name: attachment.filename,
         });
       });
@@ -415,7 +425,7 @@ export async function parseContainerAttachment(
     const message = err instanceof Error ? err.message : String(err);
     await prisma.$transaction(async (tx) => {
       await writeParseLog(tx, normalizedNo, "parse_pipeline", "failed", message);
-      await setParseMetaFailed(tx, normalizedNo, message);
+      await setCargoParseFailed(tx, normalizedNo, message);
     });
     throw err;
   }
@@ -430,14 +440,12 @@ export async function parseContainerUploadBuffer(
 ): Promise<ParseEmailResult> {
   const normalizedNo = containerNo.trim().toUpperCase();
 
-  const container = await prisma.google_sheet.findFirst({
-    where: { container_no: normalizedNo, deleted_at: null },
-  });
+  const container = await findCargoContainer(normalizedNo);
   if (!container) {
-    throw new Error(`柜号 ${normalizedNo} 不存在，请先导入订单表`);
+    throw new Error(`柜号 ${normalizedNo} 不存在，请先在 google_sheet 录入订单`);
   }
 
-  await setParseMetaParsing(normalizedNo);
+  await setCargoParsing(normalizedNo);
 
   try {
     const parsed = await parseDeliveryExcelBuffer(buffer, normalizedNo);
@@ -445,7 +453,7 @@ export async function parseContainerUploadBuffer(
     if (parsed.items.length === 0) {
       await prisma.$transaction(async (tx) => {
         await writeParseLog(tx, normalizedNo, "parse_excel", "failed", "附件中无有效明细行");
-        await setParseMetaFailed(tx, normalizedNo, "附件中无有效明细行", {
+        await setCargoParseFailed(tx, normalizedNo, "附件中无有效明细行", {
           attachment_name: fileName,
         });
       });
@@ -500,7 +508,7 @@ export async function parseContainerUploadBuffer(
     const message = err instanceof Error ? err.message : String(err);
     await prisma.$transaction(async (tx) => {
       await writeParseLog(tx, normalizedNo, "parse_pipeline", "failed", message);
-      await setParseMetaFailed(tx, normalizedNo, message);
+      await setCargoParseFailed(tx, normalizedNo, message);
     });
     throw err;
   }
@@ -508,13 +516,12 @@ export async function parseContainerUploadBuffer(
 
 export async function getContainerParseResult(containerNo: string) {
   const normalizedNo = containerNo.trim().toUpperCase();
-  const container = await prisma.google_sheet.findFirst({
+  const container = await prisma.containers.findFirst({
     where: { container_no: normalizedNo, deleted_at: null },
     include: {
       warehouse_summaries: { orderBy: { warehouse_code: "asc" } },
-      container_parse_meta: true,
     },
   });
   if (!container) return null;
-  return mergeParseMeta(container);
+  return container;
 }

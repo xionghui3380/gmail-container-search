@@ -14,13 +14,13 @@ export async function GET(request: NextRequest) {
 
   if (oauthError) {
     return NextResponse.redirect(
-      new URL(`/containers?gmail_error=${encodeURIComponent(oauthError)}`, request.url),
+      new URL(`/google-sheet?gmail_error=${encodeURIComponent(oauthError)}`, request.url),
     );
   }
 
   if (!code) {
     return NextResponse.redirect(
-      new URL("/containers?gmail_error=missing_code", request.url),
+      new URL("/google-sheet?gmail_error=missing_code", request.url),
     );
   }
 
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     const tokens = await exchangeCodeForTokens(code);
 
     const response = NextResponse.redirect(
-      new URL("/containers?gmail_connected=true", request.url),
+      new URL("/google-sheet?gmail_connected=true", request.url),
     );
 
     setGmailTokenCookies(
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     console.error("[Gmail Callback] Token 交换失败:", getErrorMessage(err));
     return NextResponse.redirect(
       new URL(
-        `/containers?gmail_error=${encodeURIComponent(getErrorMessage(err))}`,
+        `/google-sheet?gmail_error=${encodeURIComponent(getErrorMessage(err))}`,
         request.url,
       ),
     );

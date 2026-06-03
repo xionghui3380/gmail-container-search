@@ -16,7 +16,6 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { format } from "date-fns";
 import {
   ArrowDown,
   ArrowUp,
@@ -36,20 +35,43 @@ import GmailAuthNotifier from "@/components/GmailAuthNotifier";
 import {
   type ColumnKey,
   type DataColumn,
+  isDateColumn,
 } from "@/lib/container-columns";
+import {
+  formatCellDate,
+  formatCellDateTime,
+  renderBoolean,
+  renderOperationType,
+  toDateInputValue,
+  toDateTimeLocalValue,
+} from "@/lib/google-sheet-cell-render";
 import { useTablePreferences } from "@/hooks/useTablePreferences";
 
 type ContainerRow = {
   id: string;
   container_no: string;
   container_type: string;
+  weight?: string | number | null;
   terminal: string;
   customer: string;
   mbl?: string | null;
   operation_type: string;
-  lfd_date?: string | null;
   pickup_driver?: string | null;
+  return_driver?: string | null;
+  do_number?: string | null;
+  order_date?: string | null;
   eta_date?: string | null;
+  delivery_location?: string | null;
+  lfd_date?: string | null;
+  pickup_date?: string | null;
+  forecast_window?: string | null;
+  empty_report_date?: string | null;
+  return_date?: string | null;
+  appointment_no?: string | null;
+  appointment_time?: string | null;
+  warehouse_account?: string | null;
+  backend_delivery?: boolean;
+  appointment_colleague?: string | null;
   sort?: string | null;
 };
 
@@ -62,15 +84,29 @@ type UserInfo = {
 };
 
 type RowForm = {
-  container_no: string;
   container_type: string;
+  weight: string;
+  mbl: string;
+  container_no: string;
   terminal: string;
   customer: string;
-  mbl: string;
-  operation_type: "fcl" | "lcl";
-  eta_date: string;
-  lfd_date: string;
   pickup_driver: string;
+  return_driver: string;
+  do_number: string;
+  order_date: string;
+  eta_date: string;
+  operation_type: "fcl" | "lcl";
+  delivery_location: string;
+  lfd_date: string;
+  pickup_date: string;
+  forecast_window: string;
+  empty_report_date: string;
+  return_date: string;
+  appointment_no: string;
+  appointment_time: string;
+  warehouse_account: string;
+  backend_delivery: boolean;
+  appointment_colleague: string;
 };
 
 type SortState = {
@@ -79,31 +115,100 @@ type SortState = {
 };
 
 const emptyRowForm = (): RowForm => ({
-  container_no: "",
   container_type: "40",
+  weight: "",
+  mbl: "",
+  container_no: "",
   terminal: "",
   customer: "",
-  mbl: "",
-  operation_type: "fcl",
-  eta_date: "",
-  lfd_date: "",
   pickup_driver: "",
+  return_driver: "",
+  do_number: "",
+  order_date: "",
+  eta_date: "",
+  operation_type: "fcl",
+  delivery_location: "",
+  lfd_date: "",
+  pickup_date: "",
+  forecast_window: "",
+  empty_report_date: "",
+  return_date: "",
+  appointment_no: "",
+  appointment_time: "",
+  warehouse_account: "",
+  backend_delivery: false,
+  appointment_colleague: "",
 });
 
+function rowToForm(row: ContainerRow): RowForm {
+  return {
+    container_type: row.container_type || "40",
+    weight: row.weight != null && row.weight !== "" ? String(row.weight) : "",
+    mbl: row.mbl ?? "",
+    container_no: row.container_no,
+    terminal: row.terminal,
+    customer: row.customer,
+    pickup_driver: row.pickup_driver ?? "",
+    return_driver: row.return_driver ?? "",
+    do_number: row.do_number ?? "",
+    order_date: toDateInputValue(row.order_date),
+    eta_date: toDateInputValue(row.eta_date),
+    operation_type: row.operation_type === "lcl" ? "lcl" : "fcl",
+    delivery_location: row.delivery_location ?? "",
+    lfd_date: toDateInputValue(row.lfd_date),
+    pickup_date: toDateInputValue(row.pickup_date),
+    forecast_window: row.forecast_window ?? "",
+    empty_report_date: toDateInputValue(row.empty_report_date),
+    return_date: toDateInputValue(row.return_date),
+    appointment_no: row.appointment_no ?? "",
+    appointment_time: toDateTimeLocalValue(row.appointment_time),
+    warehouse_account: row.warehouse_account ?? "",
+    backend_delivery: row.backend_delivery ?? false,
+    appointment_colleague: row.appointment_colleague ?? "",
+  };
+}
+
 const inputClass =
-  "h-8 w-full min-w-[72px] rounded border border-slate-200 px-2 text-sm outline-none focus:border-blue-400";
+  "h-8 w-full min-w-[72px] rounded border border-slate-200 px-2 text-sm outline-none focus:border-blue-400 whitespace-nowrap";
+
+const cellNowrap = "whitespace-nowrap px-2 py-3";
+const stickyActionTh =
+  "sticky right-0 z-30 min-w-[7.5rem] whitespace-nowrap bg-slate-50 px-2 py-3 text-left font-medium shadow-[-6px_0_8px_-4px_rgba(15,23,42,0.12)]";
+const stickyActionTdBase =
+  "sticky right-0 z-20 min-w-[7.5rem] whitespace-nowrap px-2 py-3 shadow-[-6px_0_8px_-4px_rgba(15,23,42,0.12)]";
+
+function parseWeight(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const num = Number(trimmed);
+  return Number.isNaN(num) ? null : num;
+}
 
 function buildPayload(form: RowForm) {
   return {
-    container_no: form.container_no.trim().toUpperCase(),
     container_type: form.container_type,
+    weight: parseWeight(form.weight),
+    mbl: form.mbl.trim() || null,
+    container_no: form.container_no.trim().toUpperCase(),
     terminal: form.terminal.trim(),
     customer: form.customer.trim(),
-    mbl: form.mbl.trim() || null,
-    operation_type: form.operation_type,
-    eta_date: form.eta_date || null,
-    lfd_date: form.lfd_date || null,
     pickup_driver: form.pickup_driver.trim() || null,
+    return_driver: form.return_driver.trim() || null,
+    do_number: form.do_number.trim() || null,
+    order_date: form.order_date || null,
+    eta_date: form.eta_date || null,
+    operation_type: form.operation_type,
+    delivery_location: form.delivery_location.trim() || null,
+    lfd_date: form.lfd_date || null,
+    pickup_date: form.pickup_date || null,
+    forecast_window: form.forecast_window.trim() || null,
+    empty_report_date: form.empty_report_date || null,
+    return_date: form.return_date || null,
+    appointment_no: form.appointment_no.trim() || null,
+    appointment_time: form.appointment_time || null,
+    warehouse_account: form.warehouse_account.trim() || null,
+    backend_delivery: form.backend_delivery,
+    appointment_colleague: form.appointment_colleague.trim() || null,
   };
 }
 
@@ -115,8 +220,7 @@ function validateRowForm(form: RowForm) {
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return "-";
-  return format(new Date(value), "yyyy-MM-dd");
+  return formatCellDate(value);
 }
 
 function getLfdClass(lfd?: string | null) {
@@ -142,7 +246,7 @@ function renderReadOnlyCell(row: ContainerRow, key: ColumnKey) {
     case "container_no":
       return (
         <Link
-          href={`/containers/${encodeURIComponent(row.container_no)}`}
+          href={`/google-sheet/${encodeURIComponent(row.container_no)}`}
           className="font-medium text-blue-600 hover:text-blue-800 hover:underline"
           onClick={(e) => e.stopPropagation()}
         >
@@ -151,6 +255,8 @@ function renderReadOnlyCell(row: ContainerRow, key: ColumnKey) {
       );
     case "container_type":
       return row.container_type;
+    case "weight":
+      return row.weight != null && row.weight !== "" ? String(row.weight) : "-";
     case "terminal":
       return row.terminal;
     case "customer":
@@ -158,15 +264,20 @@ function renderReadOnlyCell(row: ContainerRow, key: ColumnKey) {
     case "mbl":
       return row.mbl || "-";
     case "operation_type":
-      return row.operation_type === "fcl" ? "整柜" : "拆柜";
-    case "eta_date":
-      return formatDate(row.eta_date);
+      return renderOperationType(row.operation_type);
     case "lfd_date":
-      return <span className={getLfdClass(row.lfd_date)}>{formatDate(row.lfd_date)}</span>;
-    case "pickup_driver":
-      return row.pickup_driver || "-";
+      return (
+        <span className={getLfdClass(row.lfd_date)}>{formatDate(row.lfd_date)}</span>
+      );
+    case "appointment_time":
+      return formatCellDateTime(row.appointment_time);
+    case "backend_delivery":
+      return renderBoolean(row.backend_delivery);
     default:
-      return "-";
+      if (isDateColumn(key)) {
+        return formatDate(row[key as keyof ContainerRow] as string | null);
+      }
+      return (row[key as keyof ContainerRow] as string | null | undefined) || "-";
   }
 }
 
@@ -196,30 +307,15 @@ function renderEditableInput(
           <option value="45">45</option>
         </select>
       );
-    case "terminal":
+    case "weight":
       return (
         <input
-          value={form.terminal}
-          onChange={(e) => onChange("terminal", e.target.value)}
-          placeholder="码头"
-          className={inputClass}
-        />
-      );
-    case "customer":
-      return (
-        <input
-          value={form.customer}
-          onChange={(e) => onChange("customer", e.target.value)}
-          placeholder="客户"
-          className={inputClass}
-        />
-      );
-    case "mbl":
-      return (
-        <input
-          value={form.mbl}
-          onChange={(e) => onChange("mbl", e.target.value)}
-          placeholder="MBL"
+          type="number"
+          step="0.01"
+          min="0"
+          value={form.weight}
+          onChange={(e) => onChange("weight", e.target.value)}
+          placeholder="重量"
           className={inputClass}
         />
       );
@@ -234,33 +330,65 @@ function renderEditableInput(
           <option value="lcl">拆柜</option>
         </select>
       );
-    case "eta_date":
+    case "backend_delivery":
+      return (
+        <label className="flex h-8 items-center justify-center gap-1.5 text-sm">
+          <input
+            type="checkbox"
+            checked={form.backend_delivery}
+            onChange={(e) => onChange("backend_delivery", e.target.checked)}
+            className="rounded border-slate-300"
+          />
+          是
+        </label>
+      );
+    case "appointment_time":
       return (
         <input
-          type="date"
-          value={form.eta_date}
-          onChange={(e) => onChange("eta_date", e.target.value)}
+          type="datetime-local"
+          value={form.appointment_time}
+          onChange={(e) => onChange("appointment_time", e.target.value)}
           className={inputClass}
         />
       );
-    case "lfd_date":
-      return (
-        <input
-          type="date"
-          value={form.lfd_date}
-          onChange={(e) => onChange("lfd_date", e.target.value)}
-          className={inputClass}
-        />
-      );
-    case "pickup_driver":
-      return (
-        <input
-          value={form.pickup_driver}
-          onChange={(e) => onChange("pickup_driver", e.target.value)}
-          placeholder="提柜司机"
-          className={inputClass}
-        />
-      );
+    default:
+      if (isDateColumn(key)) {
+        const field = key as keyof RowForm;
+        return (
+          <input
+            type="date"
+            value={form[field] as string}
+            onChange={(e) => onChange(field, e.target.value as RowForm[typeof field])}
+            className={inputClass}
+          />
+        );
+      }
+      {
+        const textFields: Partial<Record<ColumnKey, keyof RowForm>> = {
+          terminal: "terminal",
+          customer: "customer",
+          mbl: "mbl",
+          pickup_driver: "pickup_driver",
+          return_driver: "return_driver",
+          do_number: "do_number",
+          delivery_location: "delivery_location",
+          forecast_window: "forecast_window",
+          appointment_no: "appointment_no",
+          warehouse_account: "warehouse_account",
+          appointment_colleague: "appointment_colleague",
+        };
+        const field = textFields[key];
+        if (field) {
+          return (
+            <input
+              value={form[field] as string}
+              onChange={(e) => onChange(field, e.target.value as RowForm[typeof field])}
+              className={inputClass}
+            />
+          );
+        }
+      }
+      return null;
   }
 }
 
@@ -300,9 +428,16 @@ type SortableTableRowProps = {
   selected: Set<string>;
   visibleColumns: DataColumn[];
   getWidth: (key: ColumnKey) => number;
+  isEditing: boolean;
+  editForm: RowForm;
+  saving: boolean;
   onToggleSelect: (id: string) => void;
   onViewHistory: (id: string) => void;
   onDelete: (id: string) => void;
+  onStartEdit: () => void;
+  onEditChange: <K extends keyof RowForm>(field: K, value: RowForm[K]) => void;
+  onSaveEdit: () => void;
+  onCancelEdit: () => void;
 };
 
 function SortableTableRow({
@@ -312,9 +447,16 @@ function SortableTableRow({
   selected,
   visibleColumns,
   getWidth,
+  isEditing,
+  editForm,
+  saving,
   onToggleSelect,
   onViewHistory,
   onDelete,
+  onStartEdit,
+  onEditChange,
+  onSaveEdit,
+  onCancelEdit,
 }: SortableTableRowProps) {
   const {
     attributes,
@@ -325,7 +467,7 @@ function SortableTableRow({
     isDragging,
   } = useSortable({
     id: row.id,
-    disabled: !canDragRows,
+    disabled: !canDragRows || isEditing,
   });
 
   const style = {
@@ -337,12 +479,23 @@ function SortableTableRow({
     <tr
       ref={setNodeRef}
       style={style}
-      className={`border-b border-slate-100 ${
-        isDragging
-          ? "relative z-10 bg-white opacity-90 shadow-md"
-          : "hover:bg-slate-50/80"
+      onDoubleClick={() => {
+        if (canWrite && !isEditing) onStartEdit();
+      }}
+      className={`group border-b border-slate-100 ${
+        isEditing
+          ? "bg-amber-50/70"
+          : isDragging
+            ? "relative z-10 bg-white opacity-90 shadow-md"
+            : "hover:bg-slate-50/80"
       }`}
-      title={canDragRows ? "拖拽左侧手柄调整顺序" : undefined}
+      title={
+        canWrite && !isEditing
+          ? "双击编辑"
+          : canDragRows
+            ? "拖拽左侧手柄调整顺序"
+            : undefined
+      }
     >
       {canWrite && (
         <td className="px-2 py-3" onDoubleClick={(e) => e.stopPropagation()}>
@@ -367,30 +520,48 @@ function SortableTableRow({
 
       {visibleColumns.map((column) => (
         <td
-          key={`read-${row.id}-${column.key}`}
-          style={{ width: getWidth(column.key) }}
-          className="truncate px-2 py-3 text-slate-700"
+          key={`${isEditing ? "edit" : "read"}-${row.id}-${column.key}`}
+          style={{ minWidth: getWidth(column.key), width: getWidth(column.key) }}
+          className={`${cellNowrap} text-slate-700`}
+          onDoubleClick={(e) => {
+            if (column.key === "container_no") e.stopPropagation();
+          }}
         >
-          {renderReadOnlyCell(row, column.key)}
+          {isEditing
+            ? renderEditableInput(column.key, editForm, onEditChange)
+            : renderReadOnlyCell(row, column.key)}
         </td>
       ))}
       {canWrite && (
-        <td className="px-2 py-3">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => onViewHistory(row.id)}
-              className="text-blue-500 hover:text-blue-700 hover:underline"
-            >
-              历史
-            </button>
-            <span className="text-slate-300">|</span>
-            <button
-              onClick={() => onDelete(row.id)}
-              className="text-red-500 hover:text-red-700 hover:underline"
-            >
-              删除
-            </button>
-          </div>
+        <td
+          className={`${stickyActionTdBase} ${
+            isEditing
+              ? "bg-amber-50"
+              : isDragging
+                ? "bg-white"
+                : "bg-white group-hover:bg-slate-50/80"
+          }`}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          {isEditing ? (
+            <ActionButtons saving={saving} onSave={onSaveEdit} onCancel={onCancelEdit} />
+          ) : (
+            <div className="flex items-center gap-2 whitespace-nowrap">
+              <button
+                onClick={() => onViewHistory(row.id)}
+                className="text-blue-500 hover:text-blue-700 hover:underline"
+              >
+                历史
+              </button>
+              <span className="text-slate-300">|</span>
+              <button
+                onClick={() => onDelete(row.id)}
+                className="text-red-500 hover:text-red-700 hover:underline"
+              >
+                删除
+              </button>
+            </div>
+          )}
         </td>
       )}
     </tr>
@@ -411,6 +582,8 @@ export default function ContainersPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isAddingRow, setIsAddingRow] = useState(false);
   const [newRow, setNewRow] = useState<RowForm>(emptyRowForm);
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<RowForm>(emptyRowForm);
   const [saving, setSaving] = useState(false);
   const [sortState, setSortState] = useState<SortState>({ column: null, order: "asc" });
   const [reordering, setReordering] = useState(false);
@@ -439,8 +612,8 @@ export default function ContainersPage() {
   );
 
   const canDragRows = useMemo(
-    () => canWrite && !sortState.column && !isAddingRow && !loading,
-    [canWrite, sortState.column, isAddingRow, loading],
+    () => canWrite && !sortState.column && !isAddingRow && !editingRowId && !loading,
+    [canWrite, sortState.column, isAddingRow, editingRowId, loading],
   );
 
   const loadUser = useCallback(async () => {
@@ -468,7 +641,7 @@ export default function ContainersPage() {
         params.set("sortOrder", sortState.order);
       }
 
-      const res = await fetch(`/api/v1/containers?${params.toString()}`);
+      const res = await fetch(`/api/v1/google-sheet?${params.toString()}`);
       const json = await res.json();
       if (!res.ok) {
         toast.error(json.message ?? "加载失败");
@@ -503,7 +676,7 @@ export default function ContainersPage() {
     setRows(nextRows);
     setReordering(true);
     try {
-      const res = await fetch("/api/v1/containers/reorder", {
+      const res = await fetch("/api/v1/google-sheet/reorder", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ page, pageSize, ids: orderedIds }),
@@ -538,6 +711,7 @@ export default function ContainersPage() {
   }
 
   function handleStartAdd() {
+    if (editingRowId) return;
     setNewRow(emptyRowForm());
     setIsAddingRow(true);
   }
@@ -545,6 +719,46 @@ export default function ContainersPage() {
   function handleCancelAdd() {
     setIsAddingRow(false);
     setNewRow(emptyRowForm());
+  }
+
+  function handleStartEdit(row: ContainerRow) {
+    if (isAddingRow || editingRowId) return;
+    setEditingRowId(row.id);
+    setEditForm(rowToForm(row));
+  }
+
+  function handleCancelEdit() {
+    setEditingRowId(null);
+    setEditForm(emptyRowForm());
+  }
+
+  async function handleSaveEdit() {
+    if (!editingRowId) return;
+    const message = validateRowForm(editForm);
+    if (message) {
+      toast.error(message);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/v1/google-sheet/${editingRowId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildPayload(editForm)),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.message ?? "保存失败");
+        if (json.errors?.[0]?.message) toast.error(json.errors[0].message);
+        return;
+      }
+      toast.success("保存成功");
+      handleCancelEdit();
+      loadRows();
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleSaveAdd() {
@@ -556,7 +770,7 @@ export default function ContainersPage() {
 
     setSaving(true);
     try {
-      const res = await fetch("/api/v1/containers", {
+      const res = await fetch("/api/v1/google-sheet", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildPayload(newRow)),
@@ -583,7 +797,7 @@ export default function ContainersPage() {
 
   async function handleDelete(id: string) {
     if (!confirm("确认删除该记录？")) return;
-    const res = await fetch(`/api/v1/containers/${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/v1/google-sheet/${id}`, { method: "DELETE" });
     const json = await res.json();
     if (!res.ok) {
       toast.error(json.message ?? "删除失败");
@@ -596,7 +810,7 @@ export default function ContainersPage() {
   async function handleBatchDelete() {
     if (selected.size === 0) return;
     if (!confirm(`确认删除选中的 ${selected.size} 条记录？`)) return;
-    const res = await fetch("/api/v1/containers/batch", {
+    const res = await fetch("/api/v1/google-sheet/batch", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids: Array.from(selected) }),
@@ -638,7 +852,7 @@ export default function ContainersPage() {
 
   return (
     <DashboardLayout
-      title="集装箱管理"
+      title="google_sheet"
       subtitle={user ? `${user.fullName}（${user.role}）` : "加载中..."}
       onLogout={handleLogout}
     >
@@ -696,7 +910,7 @@ export default function ContainersPage() {
             <>
               <button
                 onClick={handleStartAdd}
-                disabled={isAddingRow}
+                disabled={isAddingRow || Boolean(editingRowId)}
                 className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Plus size={15} />
@@ -726,14 +940,17 @@ export default function ContainersPage() {
         >
           <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
             <div className={`h-[600px] overflow-x-auto ${resizing ? "select-none" : ""}`}>
-              <table className="min-w-full table-fixed text-sm">
-                <thead className="sticky top-0 z-10 bg-white">
-                  <tr className="border-b border-slate-200 bg-slate-50 text-left text-slate-600">
+              <table className="w-max min-w-full border-collapse text-sm">
+                <thead className="sticky top-0 z-10 bg-slate-50">
+                  <tr className="border-b border-slate-200 text-left text-slate-600">
                     {canWrite && (
-                      <th className="w-12 px-2 py-3 font-medium">选择</th>
+                      <th className={`${cellNowrap} w-12 font-medium`}>选择</th>
                     )}
                     {canDragRows && (
-                      <th className="w-10 px-1 py-3 font-medium" title="拖拽调整 sort 顺序">
+                      <th
+                        className={`${cellNowrap} w-10 px-1 font-medium`}
+                        title="拖拽调整 sort 顺序"
+                      >
                         <GripVertical size={14} className="mx-auto text-slate-400" />
                       </th>
                     )}
@@ -744,18 +961,18 @@ export default function ContainersPage() {
                         onDragStart={() => setDraggingColumn(column.key)}
                         onDragOver={(e) => e.preventDefault()}
                         onDrop={() => handleColumnDrop(column.key)}
-                        style={{ width: getWidth(column.key) }}
-                        className={`relative px-2 py-3 font-medium ${
+                        style={{ minWidth: getWidth(column.key), width: getWidth(column.key) }}
+                        className={`relative ${cellNowrap} bg-slate-50 font-medium ${
                           draggingColumn === column.key ? "opacity-50" : ""
                         }`}
                       >
                         <button
                           type="button"
                           onClick={() => handleSortClick(column.key)}
-                          className="flex w-full items-center gap-1 text-left hover:text-blue-600"
+                          className="flex w-full items-center gap-1 whitespace-nowrap text-left hover:text-blue-600"
                           title="点击列排序；第三次恢复 sort 默认排序"
                         >
-                          <span className="truncate">{column.label}</span>
+                          <span>{column.label}</span>
                           {renderSortIcon(column.key)}
                         </button>
                         <div
@@ -769,7 +986,7 @@ export default function ContainersPage() {
                       </th>
                     ))}
                     {canWrite && (
-                      <th className="w-28 px-2 py-3 font-medium">操作</th>
+                      <th className={stickyActionTh}>操作</th>
                     )}
                   </tr>
                 </thead>
@@ -796,29 +1013,38 @@ export default function ContainersPage() {
                         selected={selected}
                         visibleColumns={visibleColumns}
                         getWidth={getWidth}
+                        isEditing={editingRowId === row.id}
+                        editForm={editForm}
+                        saving={saving}
                         onToggleSelect={toggleSelect}
                         onViewHistory={handleViewHistory}
                         onDelete={handleDelete}
+                        onStartEdit={() => handleStartEdit(row)}
+                        onEditChange={(field, value) =>
+                          setEditForm((prev) => ({ ...prev, [field]: value }))
+                        }
+                        onSaveEdit={handleSaveEdit}
+                        onCancelEdit={handleCancelEdit}
                       />
                     ))
                   )}
 
                   {isAddingRow && canWrite && (
                     <tr className="border-t-2 border-blue-200 bg-blue-50/40">
-                      <td className="px-2 py-2 text-xs text-slate-400">新增一行</td>
-                      {canDragRows && <td />}
+                      <td className={`${cellNowrap} text-xs text-slate-400`}>新增一行</td>
+                      {canDragRows && <td className={cellNowrap} />}
                       {visibleColumns.map((column) => (
                         <td
                           key={`new-${column.key}`}
-                          style={{ width: getWidth(column.key) }}
-                          className="px-2 py-2"
+                          style={{ minWidth: getWidth(column.key), width: getWidth(column.key) }}
+                          className={`${cellNowrap} py-2`}
                         >
                           {renderEditableInput(column.key, newRow, (field, value) =>
                             setNewRow((prev) => ({ ...prev, [field]: value })),
                           )}
                         </td>
                       ))}
-                      <td className="px-2 py-2">
+                      <td className={`${stickyActionTdBase} bg-blue-50 py-2`}>
                         <ActionButtons
                           saving={saving}
                           onSave={handleSaveAdd}

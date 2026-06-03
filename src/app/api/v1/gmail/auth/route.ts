@@ -10,7 +10,7 @@ import { requireUser } from "@/lib/require-user";
 export async function GET(request: NextRequest) {
   const user = await requireUser(request);
   if (!user) {
-    return NextResponse.redirect(new URL("/login?redirect=/containers", request.url));
+    return NextResponse.redirect(new URL("/login?redirect=/google-sheet", request.url));
   }
 
   const authUrl = getAuthUrl(user.id);

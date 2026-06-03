@@ -95,7 +95,7 @@ export async function POST(request: Request) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       return error("柜号已存在", 409);
     }
-    console.error("[containers POST]", err);
+    console.error("[google-sheet POST]", err);
     return error("创建失败", 500);
   }
 }

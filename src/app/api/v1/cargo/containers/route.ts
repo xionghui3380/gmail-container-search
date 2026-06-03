@@ -2,18 +2,17 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { error, success } from "@/lib/api-response";
 import {
-  buildColumnFilters,
-  buildOrderBy,
-  buildSearchWhere,
+  buildCargoColumnFilters,
+  buildCargoOrderBy,
+  buildCargoSearchWhere,
   parseFilters,
   parseSortParams,
-} from "@/lib/container-list-query";
+} from "@/lib/cargo-list-query";
 import { requireUser } from "@/lib/require-user";
 import { serialize } from "@/lib/serialize";
 import type { Prisma } from "@prisma/client";
-import { mergeParseMeta } from "@/lib/container-parse-meta";
 
-/** 货柜管理列表：google_sheet + warehouse_summaries */
+/** 货柜管理列表：containers + warehouse_summaries */
 export async function GET(request: NextRequest) {
   const user = await requireUser(request);
   if (!user) return error("未登录", 401);
@@ -31,20 +30,20 @@ export async function GET(request: NextRequest) {
   );
   const skip = (page - 1) * pageSize;
 
-  const columnConditions = buildColumnFilters(filters);
-  const searchCondition = buildSearchWhere(search, containerNo, undefined, customer);
+  const columnConditions = buildCargoColumnFilters(filters);
+  const searchCondition = buildCargoSearchWhere(search, containerNo, undefined, customer);
 
-  const where: Prisma.google_sheetWhereInput = {
+  const where: Prisma.containersWhereInput = {
     deleted_at: null,
     ...(searchCondition ? searchCondition : {}),
     ...(columnConditions.length > 0 ? { AND: columnConditions } : {}),
   };
 
-  const orderBy = buildOrderBy(sortBy, sortOrder);
+  const orderBy = buildCargoOrderBy(sortBy, sortOrder);
 
   const [total, items] = await Promise.all([
-    prisma.google_sheet.count({ where }),
-    prisma.google_sheet.findMany({
+    prisma.containers.count({ where }),
+    prisma.containers.findMany({
       where,
       orderBy,
       skip,
@@ -58,14 +57,11 @@ export async function GET(request: NextRequest) {
             item_count: true,
           },
         },
-        container_parse_meta: true,
       },
     }),
   ]);
 
-  const rows = items.map((item) => mergeParseMeta(item));
-
-  return success(serialize(rows), {
+  return success(serialize(items), {
     page,
     pageSize,
     total,

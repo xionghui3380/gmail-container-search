@@ -221,7 +221,7 @@ export default function ContainerDetailPage({
   }
 
   const itemTotalPages = Math.max(1, Math.ceil(itemTotal / pageSize));
-  const detailHref = `/containers/${encodeURIComponent(containerNo)}`;
+  const detailHref = `/google-sheet/${encodeURIComponent(containerNo)}`;
 
   return (
     <DashboardLayout
@@ -231,7 +231,7 @@ export default function ContainerDetailPage({
     >
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Link
-          href="/containers"
+          href="/google-sheet"
           className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 hover:bg-slate-50"
         >
           <ArrowLeft size={15} />
@@ -514,7 +514,7 @@ export default function ContainerDetailPage({
         </div>
       ) : (
         <div className="rounded-lg border border-slate-200 bg-white p-12 text-center text-slate-400">
-          柜号不存在，请先在集装箱管理中添加或导入订单
+          柜号不存在，请先在 google_sheet 中添加或导入订单
         </div>
       )}
     </DashboardLayout>

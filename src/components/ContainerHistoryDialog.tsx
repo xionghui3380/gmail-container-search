@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { format } from "date-fns";
 import { X, ChevronDown, ChevronUp, User, Clock, Hash } from "lucide-react";
 import { type ColumnKey, DATA_COLUMNS } from "@/lib/container-columns";
+import { renderSnapshotValue } from "@/lib/google-sheet-cell-render";
 
 type HistoryRecord = {
   id: string;
@@ -25,36 +26,12 @@ type ContainerHistoryDialogProps = {
   containerId: string | null;
 };
 
-function formatDate(value?: string | null) {
-  if (!value) return "-";
-  return format(new Date(value), "yyyy-MM-dd");
-}
-
 function renderSnapshotCell(snapshot: Record<string, unknown>, key: ColumnKey) {
   const value = snapshot[key];
-
-  switch (key) {
-    case "container_no":
-      return <span className="font-medium text-slate-800">{String(value ?? "-")}</span>;
-    case "container_type":
-      return String(value ?? "-");
-    case "terminal":
-      return String(value ?? "-");
-    case "customer":
-      return String(value ?? "-");
-    case "mbl":
-      return String(value ?? "-");
-    case "operation_type":
-      return value === "lcl" ? "拆柜" : value === "fcl" ? "整柜" : String(value ?? "-");
-    case "eta_date":
-      return formatDate(value as string | null);
-    case "lfd_date":
-      return formatDate(value as string | null);
-    case "pickup_driver":
-      return String(value ?? "-");
-    default:
-      return "-";
+  if (key === "container_no") {
+    return <span className="font-medium text-slate-800">{renderSnapshotValue(key, value)}</span>;
   }
+  return renderSnapshotValue(key, value);
 }
 
 export default function ContainerHistoryDialog({
@@ -77,7 +54,7 @@ export default function ContainerHistoryDialog({
     if (!containerId) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/v1/containers/${containerId}/history`);
+      const res = await fetch(`/api/v1/google-sheet/${containerId}/history`);
       const json = await res.json();
       if (res.ok) {
         setHistory(json.data || []);

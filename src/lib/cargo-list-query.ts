@@ -1,9 +1,5 @@
 import { Prisma } from "@prisma/client";
-import {
-  DATE_COLUMN_KEYS,
-  SORTABLE_COLUMN_KEYS,
-  type ColumnKey,
-} from "@/lib/container-columns";
+import { SORTABLE_COLUMN_KEYS, type ColumnKey } from "@/lib/container-columns";
 
 const SORTABLE_SET = new Set<string>(SORTABLE_COLUMN_KEYS);
 
@@ -17,12 +13,11 @@ export function parseSortParams(sortBy: string | null, sortOrder: string | null)
   return { sortBy: sortBy as ColumnKey, sortOrder: order };
 }
 
-export function buildOrderBy(
+export function buildCargoOrderBy(
   sortBy: ColumnKey | null,
   sortOrder: SortOrder,
-): Prisma.google_sheetOrderByWithRelationInput[] {
+): Prisma.containersOrderByWithRelationInput[] {
   if (!sortBy) {
-    // 默认按 sort 字段排序（PostgreSQL null 在 asc 时默认排最后）
     return [{ sort: "asc" }, { id: "asc" }];
   }
   return [{ [sortBy]: sortOrder }, { id: "asc" }];
@@ -49,10 +44,10 @@ function parseFilterDate(value: string) {
   return date;
 }
 
-export function buildColumnFilters(
+export function buildCargoColumnFilters(
   filters: Partial<Record<ColumnKey, string>>,
-): Prisma.google_sheetWhereInput[] {
-  const conditions: Prisma.google_sheetWhereInput[] = [];
+): Prisma.containersWhereInput[] {
+  const conditions: Prisma.containersWhereInput[] = [];
 
   for (const [key, value] of Object.entries(filters)) {
     if (!value) continue;
@@ -63,13 +58,6 @@ export function buildColumnFilters(
       case "customer":
       case "mbl":
       case "pickup_driver":
-      case "return_driver":
-      case "do_number":
-      case "delivery_location":
-      case "forecast_window":
-      case "appointment_no":
-      case "warehouse_account":
-      case "appointment_colleague":
         conditions.push({
           [key]: { contains: value, mode: "insensitive" },
         });
@@ -79,37 +67,25 @@ export function buildColumnFilters(
           conditions.push({ operation_type: value });
         }
         break;
-      case "backend_delivery":
-        if (value === "true" || value === "1" || value === "是") {
-          conditions.push({ backend_delivery: true });
-        } else if (value === "false" || value === "0" || value === "否") {
-          conditions.push({ backend_delivery: false });
-        }
-        break;
-      case "weight": {
-        const num = Number(value);
-        if (!Number.isNaN(num)) conditions.push({ weight: num });
+      case "eta_date":
+      case "lfd_date": {
+        const date = parseFilterDate(value);
+        if (date) conditions.push({ [key]: date });
         break;
       }
-      default:
-        if (DATE_COLUMN_KEYS.includes(key as ColumnKey) || key === "appointment_time") {
-          const date = parseFilterDate(value);
-          if (date) conditions.push({ [key]: date });
-        }
-        break;
     }
   }
 
   return conditions;
 }
 
-export function buildSearchWhere(
+export function buildCargoSearchWhere(
   search: string | undefined,
   containerNo?: string | null,
   mbl?: string | null,
   customer?: string | null,
-): Prisma.google_sheetWhereInput | undefined {
-  const conditions: Prisma.google_sheetWhereInput[] = [];
+): Prisma.containersWhereInput | undefined {
+  const conditions: Prisma.containersWhereInput[] = [];
 
   if (search) {
     conditions.push({

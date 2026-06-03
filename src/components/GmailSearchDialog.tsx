@@ -83,7 +83,7 @@ interface GmailSearchDialogProps {
     containerNo: string;
     /** 解析入库成功后回调（如刷新列表） */
     onParsed?: () => void;
-    /** 详情页链接，默认 /containers/[柜号] */
+    /** 详情页链接，默认 /google-sheet/[柜号] */
     detailHref?: string;
 }
 
@@ -427,7 +427,7 @@ export default function GmailSearchDialog({
                                     </table>
                                     <div className="border-t border-blue-100 bg-blue-50/30 px-4 py-2 text-right">
                                         <Link
-                                            href={detailHref ?? `/containers/${encodeURIComponent(containerNo)}`}
+                                            href={detailHref ?? `/google-sheet/${encodeURIComponent(containerNo)}`}
                                             className="text-sm text-blue-600 hover:underline"
                                             onClick={() => setIsOpen(false)}
                                         >

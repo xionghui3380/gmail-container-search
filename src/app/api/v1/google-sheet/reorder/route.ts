@@ -39,7 +39,7 @@ export async function PUT(request: Request) {
 
     return success({ updated: ids.length });
   } catch (err) {
-    console.error("[containers reorder]", err);
+    console.error("[google-sheet reorder]", err);
     return error("排序保存失败", 500);
   }
 }

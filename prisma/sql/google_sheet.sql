@@ -179,3 +179,22 @@ BEGIN
       FOREIGN KEY (container_id) REFERENCES google_sheet (id) ON DELETE CASCADE;
   END IF;
 END $$;
+
+-- 修复 id 自增序列（表由重命名等方式创建时可能缺失 DEFAULT）
+DO $$
+DECLARE
+  max_id BIGINT;
+BEGIN
+  IF pg_get_serial_sequence('google_sheet', 'id') IS NULL THEN
+    CREATE SEQUENCE IF NOT EXISTS google_sheet_id_seq;
+    SELECT COALESCE(MAX(id), 0) INTO max_id FROM google_sheet;
+    IF max_id = 0 THEN
+      PERFORM setval('google_sheet_id_seq', 1, false);
+    ELSE
+      PERFORM setval('google_sheet_id_seq', max_id, true);
+    END IF;
+    ALTER TABLE google_sheet
+      ALTER COLUMN id SET DEFAULT nextval('google_sheet_id_seq');
+    ALTER SEQUENCE google_sheet_id_seq OWNED BY google_sheet.id;
+  END IF;
+END $$;

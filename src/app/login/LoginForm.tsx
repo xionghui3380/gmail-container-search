@@ -27,7 +27,7 @@ export default function LoginForm() {
         return;
       }
       toast.success("登录成功");
-      const redirect = searchParams.get("redirect") || "/containers";
+      const redirect = searchParams.get("redirect") || "/google-sheet";
       router.push(redirect);
       router.refresh();
     } catch {

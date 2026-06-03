@@ -28,7 +28,7 @@ export async function DELETE(request: Request) {
 
     return success({ deleted: result.count });
   } catch (err) {
-    console.error("[containers batch DELETE]", err);
+    console.error("[google-sheet batch DELETE]", err);
     return error("批量删除失败", 500);
   }
 }

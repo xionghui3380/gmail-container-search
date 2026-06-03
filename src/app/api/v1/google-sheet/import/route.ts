@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
       errors: result.errors,
     });
   } catch (err) {
-    console.error("[containers import]", err);
+    console.error("[google-sheet import]", err);
     return error(err instanceof Error ? err.message : "导入失败", 500);
   }
 }
