@@ -1,0 +1,38 @@
+import { prisma } from "@/lib/prisma";
+import { canDelete } from "@/lib/auth";
+import { error, success } from "@/lib/api-response";
+import { requireUser } from "@/lib/require-user";
+import { cargoOrderBatchDeleteSchema } from "@/lib/cargo-order-validators";
+
+export async function DELETE(request: Request) {
+  const user = await requireUser(request as import("next/server").NextRequest);
+  if (!user) return error("Unauthorized", 401);
+  if (!canDelete(user.role)) return error("权限不足", 403);
+
+  try {
+    const body = await request.json();
+    const parsed = cargoOrderBatchDeleteSchema.safeParse(body);
+    if (!parsed.success) {
+      return error(
+        "Validation failed",
+        400,
+        parsed.error.issues.map((issue) => ({
+          field: issue.path.join("."),
+          message: issue.message,
+        })),
+      );
+    }
+
+    const ids = parsed.data.ids.map(Number).filter((id) => !Number.isNaN(id));
+    if (ids.length === 0) return error("无效 ID", 400);
+
+    const result = await prisma.containers.deleteMany({
+      where: { id: { in: ids } },
+    });
+
+    return success({ deleted: result.count });
+  } catch (err) {
+    console.error("[containers batch DELETE]", err);
+    return error("批量删除失败", 500);
+  }
+}

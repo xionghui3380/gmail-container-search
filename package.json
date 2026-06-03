@@ -13,6 +13,7 @@
     "db:google-sheet-cleanup": "prisma db execute --file prisma/sql/google_sheet_cleanup.sql --schema prisma/schema.prisma",
     "db:fix-autoincrement": "prisma db execute --file prisma/sql/fix_autoincrement_ids.sql --schema prisma/schema.prisma",
     "db:orders": "prisma db execute --file prisma/sql/orders.sql --schema prisma/schema.prisma",
+    "db:parse-module": "prisma db execute --file prisma/sql/parse_module_v2.sql --schema prisma/schema.prisma",
     "db:seed": "tsx prisma/seed.ts",
     "import:orders": "tsx scripts/import-order-sheet.ts"
   },

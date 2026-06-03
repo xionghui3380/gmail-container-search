@@ -12,29 +12,25 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const containerNo = searchParams.get("containerNo")?.trim().toUpperCase();
   const batchNo = searchParams.get("batchNo")?.trim();
-  const containerId = searchParams.get("containerId");
   const page = Math.max(1, Number(searchParams.get("page") ?? 1));
   const pageSize = Math.min(200, Math.max(1, Number(searchParams.get("pageSize") ?? 50)));
   const skip = (page - 1) * pageSize;
 
-  const where: Prisma.parse_logsWhereInput = {};
+  const where: Prisma.warehouse_summariesWhereInput = {};
   if (containerNo) where.container_no = containerNo;
   if (batchNo) where.batch_no = batchNo;
-  if (containerId && !Number.isNaN(Number(containerId))) {
-    where.container_id = BigInt(containerId);
-  }
 
-  const [total, logs] = await Promise.all([
-    prisma.parse_logs.count({ where }),
-    prisma.parse_logs.findMany({
+  const [total, rows] = await Promise.all([
+    prisma.warehouse_summaries.count({ where }),
+    prisma.warehouse_summaries.findMany({
       where,
-      orderBy: { created_at: "desc" },
+      orderBy: [{ container_no: "asc" }, { warehouse_code: "asc" }],
       skip,
       take: pageSize,
     }),
   ]);
 
-  return success(serialize(logs), {
+  return success(serialize(rows), {
     page,
     pageSize,
     total,

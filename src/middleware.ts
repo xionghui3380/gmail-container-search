@@ -51,12 +51,6 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname === "/containers" || pathname.startsWith("/containers/")) {
-    const url = request.nextUrl.clone();
-    url.pathname = pathname.replace(/^\/containers/, "/google-sheet");
-    return NextResponse.redirect(url);
-  }
-
   if (
     pathname === "/cargo" ||
     pathname.startsWith("/cargo/") ||

@@ -90,107 +90,103 @@ model google_sheet_history {
   @@map("google_sheet_history")
 }
 
-/// 货柜订单表（货柜管理主表，含 Gmail 解析字段）
+/// 货柜解析记录（每次 Gmail 检索解析一条，含批次号）
 model containers {
-  id                                   BigInt                @id @default(autoincrement())
-  container_type                       String                @default("40") @db.VarChar(10)
-  weight                               Decimal?              @db.Decimal(12, 2)
-  mbl                                  String?               @db.VarChar(50)
-  vessel_name                          String?               @db.VarChar(30)
-  voyage_no                            String?               @db.VarChar(30)
-  terminal                             String                @default("-") @db.VarChar(50)
-  customer                             String                @default("-") @db.VarChar(100)
-  container_no                         String                @unique(map: "containers_container_no_key") @db.VarChar(20)
-  pickup_company                       String?               @db.VarChar(100)
-  return_company                       String?               @db.VarChar(100)
-  do_number                            String?               @db.VarChar(50)
-  order_date                           DateTime?             @db.Date
-  eta_date                             DateTime?             @db.Date
-  operation_type                       operation_type        @default(fcl)
-  delivery_location                    String?               @db.VarChar(200)
-  lfd_date                             DateTime?             @db.Date
-  pickup_date                          DateTime?             @db.Date
-  forecast_window                      String?               @db.VarChar(50)
-  empty_report_date                    DateTime?             @db.Date
-  return_date                          DateTime?             @db.Date
-  transport_date                       DateTime?             @db.Date
-  appointment_no                       String?               @db.VarChar(50)
-  appointment_time                     DateTime?             @db.Timestamptz(6)
-  warehouse_account                    String?               @db.VarChar(50)
-  pickup_driver                        String?               @db.VarChar(50)
-  return_driver                        String?               @db.VarChar(50)
-  backend_delivery                     Boolean               @default(false)
-  appointment_colleague                String?               @db.VarChar(50)
-  is_correct                           Boolean               @default(true)
-  remarks                              String?
-  email_message_id                     String?               @db.VarChar(128)
-  email_subject                        String?               @db.VarChar(500)
-  email_from                           String?               @db.VarChar(255)
-  email_date                           DateTime?             @db.Timestamptz(6)
-  attachment_name                      String?               @db.VarChar(255)
-  parse_status                         parse_status          @default(pending)
-  error_message                        String?
-  created_by                           BigInt
-  updated_by                           BigInt?
-  created_at                           DateTime              @default(now()) @db.Timestamptz(6)
-  updated_at                           DateTime              @default(now()) @db.Timestamptz(6)
-  deleted_at                           DateTime?             @db.Timestamptz(6)
-  deleted_by                           BigInt?
-  sort                                 BigInt?
-  users_containers_created_byTousers   users                 @relation("containers_created_byTousers", fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  users_containers_deleted_byTousers   users?                @relation("containers_deleted_byTousers", fields: [deleted_by], references: [id], onUpdate: NoAction)
-  users_containers_updated_byTousers     users?                @relation("containers_updated_byTousers", fields: [updated_by], references: [id], onUpdate: NoAction)
-  delivery_items                       delivery_items[]
-  parse_logs                           parse_logs[]
-  warehouse_summaries                  warehouse_summaries[]
+  id               Int       @id @default(autoincrement())
+  order_id         Int
+  batch_no         String?   @db.VarChar(50)
+  container_no     String    @db.VarChar(20)
+  operation_type   String?   @db.VarChar(50)
+  customer         String?   @db.VarChar(200)
+  driver           String?   @db.VarChar(200)
+  order_date       DateTime? @db.Date
+  eta              DateTime? @db.Date
+  lfd              DateTime? @db.Date
+  pickup_date      DateTime? @db.Date
+  email_message_id String?   @db.Text
+  email_subject    String?   @db.Text
+  email_from       String?   @db.VarChar(200)
+  email_date       DateTime? @db.Timestamp(6)
+  attachment_name  String?   @db.Text
+  parse_status     String    @default("pending") @db.VarChar(30)
+  error_message    String?   @db.Text
+  created_at       DateTime  @default(now()) @db.Timestamp(6)
+  updated_at       DateTime  @default(now()) @updatedAt @db.Timestamp(6)
+  orders           orders    @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  attachments      attachments[]
 
+  @@index([container_no], map: "idx_containers_container_no")
+  @@index([batch_no], map: "idx_containers_batch_no")
+  @@index([order_id], map: "idx_containers_order_id")
   @@index([created_at(sort: Desc)], map: "idx_containers_created_at")
-  @@index([customer], map: "idx_containers_customer")
-  @@index([eta_date], map: "idx_containers_eta_date")
-  @@index([lfd_date], map: "idx_containers_lfd_date")
   @@index([parse_status], map: "idx_containers_parse_status")
-  @@index([pickup_driver], map: "idx_containers_pickup_driver")
-  @@index([terminal], map: "idx_containers_terminal")
   @@map("containers")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model attachments {
+  id              Int       @id @default(autoincrement())
+  container_id    Int
+  container_no    String    @db.VarChar(20)
+  batch_no        String    @db.VarChar(50)
+  attachment_name String?   @db.Text
+  parse_status    String    @default("pending") @db.VarChar(30)
+  error_message   String?   @db.Text
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
+  containers      containers @relation(fields: [container_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  delivery_items  delivery_items[]
+
+  @@index([container_id], map: "idx_attachments_container_id")
+  @@index([container_no], map: "idx_attachments_container_no")
+  @@index([batch_no], map: "idx_attachments_batch_no")
+  @@map("attachments")
+}
+
+/// 附件解析出的派送明细
 model delivery_items {
-  id                  BigInt     @id @default(autoincrement())
+  id                  Int        @id @default(autoincrement())
+  attachment_id       Int?
+  container_id        Int?
   container_no        String     @db.VarChar(20)
-  customer_code       String?    @db.VarChar(50)
-  fba_id              String?    @db.VarChar(100)
-  reference_id        String?    @db.VarChar(100)
+  batch_no            String?    @db.VarChar(50)
+  customer_code       String?    @db.Text
+  fba_id              String?    @db.Text
+  reference_id        String?    @db.Text
   cbm                 Decimal?   @db.Decimal(10, 2)
   weight              Decimal?   @db.Decimal(10, 2)
   carton_count        Int?
   warehouse_code      String?    @db.VarChar(50)
   delivery_method     String?    @db.VarChar(50)
-  customer_note       String?
+  customer_note       String?    @db.Text
   actual_carton_count Int?
   pallet_count        Int?
-  warehouse_note      String?
+  warehouse_note      String?    @db.Text
   is_warning          Boolean    @default(false)
   created_at          DateTime   @default(now()) @db.Timestamptz(6)
-  containers          containers   @relation(fields: [container_no], references: [container_no], onDelete: Cascade, map: "fk_delivery_items_containers")
+  attachments         attachments? @relation(fields: [attachment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([container_no], map: "idx_delivery_items_container_no")
+  @@index([attachment_id], map: "idx_delivery_items_attachment_id")
+  @@index([container_id], map: "idx_delivery_items_container_id")
+  @@index([batch_no], map: "idx_delivery_items_batch_no")
   @@index([fba_id], map: "idx_delivery_items_fba_id")
   @@index([warehouse_code], map: "idx_delivery_items_warehouse_code")
 }
 
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// 解析过程日志
 model parse_logs {
-  id           BigInt     @id @default(autoincrement())
-  container_no String     @db.VarChar(20)
-  step         String     @db.VarChar(50)
-  status       log_status
-  message      String?
-  created_at   DateTime   @default(now()) @db.Timestamptz(6)
-  containers   containers   @relation(fields: [container_no], references: [container_no], onDelete: Cascade, map: "fk_parse_logs_containers")
+  id            BigInt     @id @default(autoincrement())
+  container_id  BigInt?
+  attachment_id Int?
+  container_no  String     @db.VarChar(20)
+  batch_no      String?    @db.VarChar(50)
+  step          String     @db.VarChar(100)
+  status        log_status
+  message       String?
+  created_at    DateTime   @default(now()) @db.Timestamptz(6)
 
   @@index([container_no], map: "idx_parse_logs_container_no")
+  @@index([container_id], map: "idx_parse_logs_container_id")
+  @@index([batch_no], map: "idx_parse_logs_batch_no")
   @@index([created_at(sort: Desc)], map: "idx_parse_logs_created_at")
   @@index([status], map: "idx_parse_logs_status")
 }
@@ -215,15 +211,14 @@ model users {
   google_sheet_deleted_byTousers google_sheet[] @relation("google_sheet_deleted_byTousers")
   google_sheet_updated_byTousers google_sheet[] @relation("google_sheet_updated_byTousers")
   google_sheet_history                    google_sheet_history[]
-  containers_created_byTousers            containers[] @relation("containers_created_byTousers")
-  containers_deleted_byTousers            containers[] @relation("containers_deleted_byTousers")
-  containers_updated_byTousers            containers[] @relation("containers_updated_byTousers")
   users_users_created_byTousers           users?       @relation("users_created_byTousers", fields: [created_by], references: [id], onUpdate: NoAction)
   other_users_users_created_byTousers     users[]      @relation("users_created_byTousers")
   users_users_updated_byTousers           users?       @relation("users_updated_byTousers", fields: [updated_by], references: [id], onUpdate: NoAction)
   other_users_users_updated_byTousers     users[]      @relation("users_updated_byTousers")
   customers_created                        customers[]  @relation("customers_created_by")
   customers_updated                        customers[]  @relation("customers_updated_by")
+  orders_created                           orders[]     @relation("orders_created_by")
+  orders_updated                           orders[]     @relation("orders_updated_by")
 
   @@index([is_enabled], map: "idx_users_is_enabled")
   @@index([role], map: "idx_users_role")
@@ -232,17 +227,18 @@ model users {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model warehouse_summaries {
-  id             BigInt     @id @default(autoincrement())
+  id             Int        @id @default(autoincrement())
   container_no   String     @db.VarChar(20)
+  batch_no       String?    @db.VarChar(50)
   warehouse_code String     @db.VarChar(50)
   total_cartons  Int        @default(0)
   item_count     Int        @default(0)
   created_at     DateTime   @default(now()) @db.Timestamptz(6)
   updated_at     DateTime   @default(now()) @db.Timestamptz(6)
-  containers     containers   @relation(fields: [container_no], references: [container_no], onDelete: Cascade, map: "fk_warehouse_summaries_containers")
 
-  @@unique([container_no, warehouse_code], map: "uk_warehouse_summaries_container_warehouse")
+  @@unique([container_no, warehouse_code, batch_no], map: "uk_warehouse_summaries_container_warehouse_batch")
   @@index([container_no], map: "idx_warehouse_summaries_container_no")
+  @@index([batch_no], map: "idx_warehouse_summaries_batch_no")
 }
 
 enum log_status {
@@ -279,8 +275,14 @@ model orders {
   order_date     DateTime? @db.Date
   eta            DateTime? @db.Date
   pickup_date    DateTime? @db.Date
+  remarks        String?
+  created_by     BigInt?
+  updated_by     BigInt?
   created_at     DateTime  @default(now()) @db.Timestamp(6)
   updated_at     DateTime  @default(now()) @updatedAt @db.Timestamp(6)
+  containers     containers[]
+  creator        users?    @relation("orders_created_by", fields: [created_by], references: [id], onUpdate: NoAction)
+  updater        users?    @relation("orders_updated_by", fields: [updated_by], references: [id], onUpdate: NoAction)
 
   @@index([container_no], map: "idx_orders_container_no")
   @@index([created_at(sort: Desc)], map: "idx_orders_created_at")

@@ -6,6 +6,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Mail,
   Plus,
   RefreshCw,
   Search,
@@ -212,6 +213,8 @@ type DataRowProps = {
   onEditChange: <K extends keyof RowForm>(field: K, value: RowForm[K]) => void;
   onSaveEdit: () => void;
   onCancelEdit: () => void;
+  onSearch?: () => void;
+  searching?: boolean;
 };
 
 function DataRow({
@@ -229,6 +232,8 @@ function DataRow({
   onEditChange,
   onSaveEdit,
   onCancelEdit,
+  onSearch,
+  searching,
 }: DataRowProps) {
   return (
     <tr
@@ -271,13 +276,26 @@ function DataRow({
           {isEditing ? (
             <ActionButtons saving={saving} onSave={onSaveEdit} onCancel={onCancelEdit} />
           ) : (
-            <button
-              type="button"
-              onClick={() => onDelete(row.id)}
-              className="text-red-500 hover:text-red-700 hover:underline"
-            >
-              删除
-            </button>
+            <div className="flex items-center gap-2">
+              {onSearch && (
+                <button
+                  type="button"
+                  onClick={onSearch}
+                  disabled={searching}
+                  className="text-blue-600 hover:text-blue-700 hover:underline disabled:opacity-50"
+                >
+                  <Mail size={12} className="mr-0.5 inline" />
+                  {searching ? "检索中..." : "检索"}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => onDelete(row.id)}
+                className="text-red-500 hover:text-red-700 hover:underline"
+              >
+                删除
+              </button>
+            </div>
           )}
         </td>
       )}
@@ -300,6 +318,7 @@ export default function OrdersPage() {
   const [editingRowId, setEditingRowId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<RowForm>(emptyRowForm);
   const [saving, setSaving] = useState(false);
+  const [searchingId, setSearchingId] = useState<string | null>(null);
   const [sortState, setSortState] = useState<SortState>({ column: null, order: "desc" });
 
   const {
@@ -451,6 +470,33 @@ export default function OrdersPage() {
       loadRows();
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSearch(row: OrderRow) {
+    setSearchingId(row.id);
+    try {
+      const res = await fetch(`/api/v1/orders/${row.id}/search`, { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) {
+        if (json.meta?.needReconnect) {
+          toast.error("请先连接 Gmail");
+          window.open("/api/v1/gmail/auth", "_blank");
+        } else {
+          toast.error(json.message ?? "检索失败");
+        }
+        return;
+      }
+      const data = json.data;
+      if (data.parseStatus === "failed") {
+        toast.error(data.errorMessage ?? "解析失败");
+      } else {
+        toast.success(
+          `解析完成：${data.itemCount ?? 0} 条明细，批次 ${data.batchNo ?? ""}`,
+        );
+      }
+    } finally {
+      setSearchingId(null);
     }
   }
 
@@ -640,6 +686,8 @@ export default function OrdersPage() {
                     }
                     onSaveEdit={handleSaveEdit}
                     onCancelEdit={handleCancelEdit}
+                    onSearch={() => handleSearch(row)}
+                    searching={searchingId === row.id}
                   />
                 ))
               )}

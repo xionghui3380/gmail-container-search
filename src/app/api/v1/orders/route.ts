@@ -32,7 +32,16 @@ export async function GET(request: Request) {
 
   const [total, items] = await Promise.all([
     prisma.orders.count({ where }),
-    prisma.orders.findMany({ where, orderBy, skip, take: pageSize }),
+    prisma.orders.findMany({
+      where,
+      orderBy,
+      skip,
+      take: pageSize,
+      include: {
+        creator: { select: { full_name: true } },
+        updater: { select: { full_name: true } },
+      },
+    }),
   ]);
 
   return success(serialize(items), {
@@ -63,7 +72,7 @@ export async function POST(request: Request) {
     }
 
     const created = await prisma.orders.create({
-      data: buildOrderCreateInput(parsed.data),
+      data: buildOrderCreateInput(parsed.data, BigInt(user.id)),
     });
     return success(serialize(created));
   } catch (err) {

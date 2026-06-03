@@ -48,10 +48,10 @@ type EmailMeta = {
 
 async function saveParsedDeliveryData(
   tx: Prisma.TransactionClient,
-  containerId: bigint,
+  _containerId: number,
   normalizedNo: string,
   parsed: DeliveryParseResult,
-  userId: bigint,
+  _userId: bigint,
   emailMeta: EmailMeta,
   parseStatus: parse_status,
   searchLogMessage?: string,
@@ -94,15 +94,6 @@ async function saveParsedDeliveryData(
     email_subject: emailMeta.subject ?? null,
     email_from: emailMeta.from ?? null,
     email_date: emailMeta.date ? new Date(emailMeta.date) : null,
-    attachment_name: emailMeta.attachmentName,
-    is_correct: true,
-  });
-
-  await tx.containers.update({
-    where: { id: containerId },
-    data: {
-      users_containers_updated_byTousers: { connect: { id: userId } },
-    },
   });
 
   await writeParseLog(tx, normalizedNo, "save_database", "success", "数据入库完成");
@@ -173,7 +164,8 @@ export async function importOrderSheetRows(
 
 async function findCargoContainer(normalizedNo: string) {
   const existing = await prisma.containers.findFirst({
-    where: { container_no: normalizedNo, deleted_at: null },
+    where: { container_no: normalizedNo },
+    orderBy: { id: "desc" },
   });
   if (existing) return existing;
 
@@ -267,9 +259,7 @@ export async function parseContainerEmail(
     if (parsed.items.length === 0) {
       await prisma.$transaction(async (tx) => {
         await writeParseLog(tx, normalizedNo, "parse_excel", "failed", "附件中无有效明细行");
-        await setCargoParseFailed(tx, normalizedNo, "附件中无有效明细行", {
-          attachment_name: excelAttachment.filename,
-        });
+        await setCargoParseFailed(tx, normalizedNo, "附件中无有效明细行");
       });
       return {
         containerNo: normalizedNo,
@@ -376,9 +366,7 @@ export async function parseContainerAttachment(
     if (parsed.items.length === 0) {
       await prisma.$transaction(async (tx) => {
         await writeParseLog(tx, normalizedNo, "parse_excel", "failed", "附件中无有效明细行");
-        await setCargoParseFailed(tx, normalizedNo, "附件中无有效明细行", {
-          attachment_name: attachment.filename,
-        });
+        await setCargoParseFailed(tx, normalizedNo, "附件中无有效明细行");
       });
       return {
         containerNo: normalizedNo,
@@ -453,9 +441,7 @@ export async function parseContainerUploadBuffer(
     if (parsed.items.length === 0) {
       await prisma.$transaction(async (tx) => {
         await writeParseLog(tx, normalizedNo, "parse_excel", "failed", "附件中无有效明细行");
-        await setCargoParseFailed(tx, normalizedNo, "附件中无有效明细行", {
-          attachment_name: fileName,
-        });
+        await setCargoParseFailed(tx, normalizedNo, "附件中无有效明细行");
       });
       return {
         containerNo: normalizedNo,
@@ -517,11 +503,15 @@ export async function parseContainerUploadBuffer(
 export async function getContainerParseResult(containerNo: string) {
   const normalizedNo = containerNo.trim().toUpperCase();
   const container = await prisma.containers.findFirst({
-    where: { container_no: normalizedNo, deleted_at: null },
-    include: {
-      warehouse_summaries: { orderBy: { warehouse_code: "asc" } },
-    },
+    where: { container_no: normalizedNo },
+    orderBy: { id: "desc" },
   });
   if (!container) return null;
-  return container;
+
+  const warehouse_summaries = await prisma.warehouse_summaries.findMany({
+    where: { container_no: normalizedNo },
+    orderBy: { warehouse_code: "asc" },
+  });
+
+  return { ...container, warehouse_summaries };
 }

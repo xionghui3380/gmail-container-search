@@ -15,22 +15,26 @@ function assignFields(
     order_date: input.order_date !== undefined ? parseDate(input.order_date) : undefined,
     eta: input.eta !== undefined ? parseDate(input.eta) : undefined,
     pickup_date: input.pickup_date !== undefined ? parseDate(input.pickup_date) : undefined,
+    remarks: input.remarks ?? undefined,
   };
 }
 
-export function buildOrderCreateInput(input: OrderInput): Prisma.ordersCreateInput {
-  return assignFields(input) as Prisma.ordersCreateInput;
+export function buildOrderCreateInput(
+  input: OrderInput,
+  userId?: bigint,
+): Prisma.ordersCreateInput {
+  return {
+    ...(assignFields(input) as Prisma.ordersCreateInput),
+    ...(userId ? { creator: { connect: { id: userId } } } : {}),
+  };
 }
 
-export function buildOrderUpdateInput(input: Partial<OrderInput>): Prisma.ordersUpdateInput {
-  const data: Prisma.ordersUpdateInput = {};
-  if (input.container_no !== undefined) {
-    data.container_no = input.container_no.trim().toUpperCase();
-  }
-  if (input.operation_type !== undefined) data.operation_type = input.operation_type;
-  if (input.customer !== undefined) data.customer = input.customer;
-  if (input.order_date !== undefined) data.order_date = parseDate(input.order_date);
-  if (input.eta !== undefined) data.eta = parseDate(input.eta);
-  if (input.pickup_date !== undefined) data.pickup_date = parseDate(input.pickup_date);
+export function buildOrderUpdateInput(
+  input: Partial<OrderInput>,
+  userId?: bigint,
+): Prisma.ordersUpdateInput {
+  const data: Prisma.ordersUpdateInput = assignFields(input);
+  if (input.remarks !== undefined) data.remarks = input.remarks;
+  if (userId) data.updater = { connect: { id: userId } };
   return data;
 }

@@ -2,19 +2,21 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Container, ClipboardList, LayoutDashboard } from "lucide-react";
+import {
+  ClipboardList,
+  Container,
+  FileText,
+  LayoutDashboard,
+  Package,
+  Warehouse,
+} from "lucide-react";
 
 const navItems = [
-  {
-    href: "/google-sheet",
-    label: "google_sheet",
-    icon: Container,
-  },
-  {
-    href: "/orders",
-    label: "订单管理",
-    icon: ClipboardList,
-  },
+  { href: "/google-sheet", label: "google_sheet", icon: Container },
+  { href: "/orders", label: "订单管理", icon: ClipboardList },
+  { href: "/containers", label: "解析结果", icon: Package },
+  { href: "/parse-logs", label: "解析日志", icon: FileText },
+  { href: "/warehouse-summaries", label: "仓库汇总", icon: Warehouse },
 ];
 
 export default function Sidebar() {

@@ -12,6 +12,7 @@ export const orderCreateSchema = z.object({
   order_date: z.string().optional().nullable(),
   eta: z.string().optional().nullable(),
   pickup_date: z.string().optional().nullable(),
+  remarks: z.string().optional().nullable(),
 });
 
 export const orderUpdateSchema = orderCreateSchema.partial();

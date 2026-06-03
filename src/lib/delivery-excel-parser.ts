@@ -213,11 +213,19 @@ export async function parseDeliveryExcelBuffer(
 
 export function deliveryItemToCreateInput(
   item: DeliveryItemParsed,
+  meta?: {
+    attachment_id?: number;
+    container_id?: number;
+    batch_no?: string;
+  },
 ): Prisma.delivery_itemsCreateManyInput {
   const isWarning =
     !item.warehouse_code || item.carton_count === null || item.warnings.length > 0;
   return {
     container_no: item.container_no,
+    attachment_id: meta?.attachment_id,
+    container_id: meta?.container_id,
+    batch_no: meta?.batch_no,
     customer_code: item.customer_code,
     fba_id: item.fba_id,
     reference_id: item.reference_id,
