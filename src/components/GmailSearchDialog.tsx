@@ -16,7 +16,9 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Mail, ExternalLink, FileSpreadsheet, AlertCircle, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { Mail, ExternalLink, FileSpreadsheet, AlertCircle, Loader2, Database } from "lucide-react";
+import { toast } from "sonner";
 
 // ============================================================
 //  类型定义
@@ -47,9 +49,30 @@ interface ExcelData {
 interface EmailDetail extends EmailItem {
     bodyText: string;
     bodyHtml: string;
-    attachments: Array<{ filename: string; mimeType: string; isExcel: boolean }>;
+    attachments: Array<{
+        filename: string;
+        mimeType: string;
+        attachmentId: string;
+        isExcel: boolean;
+    }>;
     excelData?: ExcelData;
 }
+
+type WarehouseSummary = {
+    warehouse_code: string;
+    total_cartons: number;
+    item_count: number;
+};
+
+type ParseResult = {
+    containerNo: string;
+    parseStatus: string;
+    itemCount: number;
+    summaryCount: number;
+    summaries: WarehouseSummary[];
+    warnings: string[];
+    errorMessage?: string;
+};
 
 // ============================================================
 //  主组件
@@ -58,9 +81,17 @@ interface EmailDetail extends EmailItem {
 interface GmailSearchDialogProps {
     /** 要搜索的柜号 */
     containerNo: string;
+    /** 解析入库成功后回调（如刷新列表） */
+    onParsed?: () => void;
+    /** 详情页链接，默认 /containers/[柜号] */
+    detailHref?: string;
 }
 
-export default function GmailSearchDialog({ containerNo }: GmailSearchDialogProps) {
+export default function GmailSearchDialog({
+    containerNo,
+    onParsed,
+    detailHref,
+}: GmailSearchDialogProps) {
     // ---- 状态管理 ----
     const [isOpen, setIsOpen] = useState(false);           // 弹框开关
     const [loading, setLoading] = useState(false);          // 搜索加载中
@@ -68,12 +99,15 @@ export default function GmailSearchDialog({ containerNo }: GmailSearchDialogProp
     const [errorMsg, setErrorMsg] = useState<string>("");   // 错误信息
     const [selectedEmail, setSelectedEmail] = useState<EmailDetail | null>(null); // 选中的邮件详情
     const [detailLoading, setDetailLoading] = useState(false); // 详情加载中
+    const [parsing, setParsing] = useState(false);
+    const [parseResult, setParseResult] = useState<ParseResult | null>(null);
 
     // ---- 搜索邮件 ----
     const handleSearch = useCallback(async () => {
         setLoading(true);
         setErrorMsg("");
         setSelectedEmail(null);
+        setParseResult(null);
         setEmails([]);
 
         try {
@@ -120,6 +154,51 @@ export default function GmailSearchDialog({ containerNo }: GmailSearchDialogProp
             setDetailLoading(false);
         }
     }, []);
+
+    // ---- 解析附件并存库 ----
+    const handleParseAttachment = useCallback(
+        async (messageId: string, attachmentId: string, attachmentName: string) => {
+            setParsing(true);
+            setErrorMsg("");
+            setParseResult(null);
+
+            try {
+                const res = await fetch(
+                    `/api/v1/containers/by-no/${encodeURIComponent(containerNo)}/parse-attachment`,
+                    {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ messageId, attachmentId, attachmentName }),
+                    },
+                );
+                const json = await res.json();
+
+                if (!res.ok) {
+                    if (json.meta?.needReconnect) {
+                        setErrorMsg("Gmail 授权已过期，请重新连接");
+                        return;
+                    }
+                    throw new Error(json.message || "解析入库失败");
+                }
+
+                setParseResult(json.data);
+                toast.success(
+                    `解析完成：${json.data.itemCount} 条明细，${json.data.summaryCount} 个仓库汇总`,
+                );
+                if (json.data.warnings?.length) {
+                    toast.warning(json.data.warnings.slice(0, 3).join("；"));
+                }
+                onParsed?.();
+            } catch (err: unknown) {
+                const msg = err instanceof Error ? err.message : "解析入库失败";
+                setErrorMsg(msg);
+                toast.error(msg);
+            } finally {
+                setParsing(false);
+            }
+        },
+        [containerNo, onParsed],
+    );
 
     // ---- 打开弹框时自动搜索 ----
     const handleOpen = () => {
@@ -278,7 +357,7 @@ export default function GmailSearchDialog({ containerNo }: GmailSearchDialogProp
                                         {selectedEmail.attachments.length > 0 ? (
                                             selectedEmail.attachments.map((a) => (
                                                 <span
-                                                    key={a.filename}
+                                                    key={`${a.attachmentId}-${a.filename}`}
                                                     className={`inline-flex items-center gap-1 ml-1 px-2 py-0.5 rounded text-xs ${
                                                         a.isExcel
                                                             ? "bg-green-50 text-green-600"
@@ -287,6 +366,24 @@ export default function GmailSearchDialog({ containerNo }: GmailSearchDialogProp
                                                 >
                                                     {a.isExcel && <FileSpreadsheet size={10} />}
                                                     {a.filename}
+                                                    {a.isExcel && (
+                                                        <button
+                                                            type="button"
+                                                            disabled={parsing}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                void handleParseAttachment(
+                                                                    selectedEmail.id,
+                                                                    a.attachmentId,
+                                                                    a.filename,
+                                                                );
+                                                            }}
+                                                            className="ml-1 inline-flex items-center gap-0.5 rounded bg-blue-600 px-1.5 py-0.5 text-[10px] text-white hover:bg-blue-700 disabled:opacity-60"
+                                                        >
+                                                            <Database size={10} />
+                                                            {parsing ? "解析中..." : "解析入库"}
+                                                        </button>
+                                                    )}
                                                 </span>
                                             ))
                                         ) : (
@@ -304,7 +401,43 @@ export default function GmailSearchDialog({ containerNo }: GmailSearchDialogProp
                                 </pre>
                             </div>
 
-                            {/* Excel 附件解析结果 */}
+                            {/* 解析入库后的仓库汇总 */}
+                            {parseResult && parseResult.summaries.length > 0 && (
+                                <div className="rounded-lg border border-blue-200 overflow-hidden">
+                                    <div className="bg-blue-50 px-4 py-2 text-sm font-medium text-blue-800">
+                                        仓库汇总（已入库）
+                                    </div>
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-blue-50/50 text-left text-blue-700">
+                                            <tr>
+                                                <th className="px-4 py-2 font-medium">仓库代码</th>
+                                                <th className="px-4 py-2 font-medium">总箱数</th>
+                                                <th className="px-4 py-2 font-medium">明细行数</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {parseResult.summaries.map((row) => (
+                                                <tr key={row.warehouse_code} className="border-t border-blue-100">
+                                                    <td className="px-4 py-2 font-medium">{row.warehouse_code}</td>
+                                                    <td className="px-4 py-2">{row.total_cartons}</td>
+                                                    <td className="px-4 py-2">{row.item_count}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                    <div className="border-t border-blue-100 bg-blue-50/30 px-4 py-2 text-right">
+                                        <Link
+                                            href={detailHref ?? `/containers/${encodeURIComponent(containerNo)}`}
+                                            className="text-sm text-blue-600 hover:underline"
+                                            onClick={() => setIsOpen(false)}
+                                        >
+                                            查看柜号详情页 →
+                                        </Link>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Excel 附件预览 */}
                             {detailLoading && (
                                 <div className="flex items-center justify-center py-8 text-slate-400">
                                     <Loader2 className="animate-spin mr-2" />
@@ -325,7 +458,7 @@ export default function GmailSearchDialog({ containerNo }: GmailSearchDialogProp
                                     {/* Excel 信息头部 */}
                                     <div className="bg-green-50 px-4 py-2 flex items-center gap-2 text-sm font-medium text-green-700">
                                         <FileSpreadsheet size={16} />
-                                        <span>Excel 附件：{selectedEmail.excelData.fileName}</span>
+                                        <span>附件预览：{selectedEmail.excelData.fileName}</span>
                                         <span className="text-green-500 font-normal text-xs">
                                             （{selectedEmail.excelData.sheetName} ·{" "}
                                             {selectedEmail.excelData.rowCount} 行 &times;{" "}

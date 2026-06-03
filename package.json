@@ -8,6 +8,9 @@
     "start": "next start",
     "lint": "next lint",
     "db:generate": "prisma generate",
+    "db:init-prd": "prisma db execute --file prisma/sql/prd_5_3_init.sql --schema prisma/schema.prisma",
+    "db:google-sheet": "prisma db execute --file prisma/sql/google_sheet.sql --schema prisma/schema.prisma",
+    "db:google-sheet-cleanup": "prisma db execute --file prisma/sql/google_sheet_cleanup.sql --schema prisma/schema.prisma",
     "db:seed": "tsx prisma/seed.ts",
     "import:orders": "tsx scripts/import-order-sheet.ts"
   },

@@ -28,15 +28,11 @@ export const containerCreateSchema = z.object({
   container_type: z.enum(["40", "45"]).default("40"),
   weight: z.number().nonnegative().optional().nullable(),
   mbl: z.string().max(50).optional().nullable(),
-  vessel_name: z.string().max(30).optional().nullable(),
-  voyage_no: z.string().max(30).optional().nullable(),
   terminal: z.string().min(1).max(50),
   customer: z.string().min(1).max(100),
   container_no: z
     .string()
     .regex(containerNoRegex, "柜号格式：4 位大写字母 + 7 位数字"),
-  pickup_company: z.string().max(100).optional().nullable(),
-  return_company: z.string().max(100).optional().nullable(),
   do_number: z.string().max(50).optional().nullable(),
   order_date: z.string().optional().nullable(),
   eta_date: z.string().optional().nullable(),
@@ -47,7 +43,6 @@ export const containerCreateSchema = z.object({
   forecast_window: z.string().max(50).optional().nullable(),
   empty_report_date: z.string().optional().nullable(),
   return_date: z.string().optional().nullable(),
-  transport_date: z.string().optional().nullable(),
   appointment_no: z.string().max(50).optional().nullable(),
   appointment_time: z.string().optional().nullable(),
   warehouse_account: z.string().max(50).optional().nullable(),
@@ -55,7 +50,6 @@ export const containerCreateSchema = z.object({
   return_driver: z.string().max(50).optional().nullable(),
   backend_delivery: z.boolean().optional().default(false),
   appointment_colleague: z.string().max(50).optional().nullable(),
-  is_correct: z.boolean().optional().default(true),
   remarks: z.string().max(500).optional().nullable(),
 });
 

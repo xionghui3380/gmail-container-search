@@ -35,7 +35,7 @@ export async function GET(request: Request) {
   const columnConditions = buildColumnFilters(filters);
   const searchCondition = buildSearchWhere(search, containerNo, mbl, customer);
 
-  const where: Prisma.containersWhereInput = {
+  const where: Prisma.google_sheetWhereInput = {
     deleted_at: null,
     ...(searchCondition ? searchCondition : {}),
     ...(columnConditions.length > 0 ? { AND: columnConditions } : {}),
@@ -44,8 +44,8 @@ export async function GET(request: Request) {
   const orderBy = buildOrderBy(sortBy, sortOrder);
 
   const [total, items] = await Promise.all([
-    prisma.containers.count({ where }),
-    prisma.containers.findMany({
+    prisma.google_sheet.count({ where }),
+    prisma.google_sheet.findMany({
       where,
       orderBy,
       skip,
@@ -80,14 +80,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const maxSort = await prisma.containers.aggregate({
+    const maxSort = await prisma.google_sheet.aggregate({
       where: { deleted_at: null },
       _max: { sort: true },
     });
     const nextSort = (maxSort._max.sort ?? BigInt(0)) + BigInt(1);
 
     const data = buildContainerCreateInput(parsed.data, BigInt(user.id));
-    const created = await prisma.containers.create({
+    const created = await prisma.google_sheet.create({
       data: { ...data, sort: nextSort },
     });
     return success(serialize(created));

@@ -17,7 +17,7 @@ export async function DELETE(request: Request) {
     }
 
     const ids = parsed.data.ids.map((id) => BigInt(id));
-    const result = await prisma.containers.updateMany({
+    const result = await prisma.google_sheet.updateMany({
       where: { id: { in: ids }, deleted_at: null },
       data: {
         deleted_at: new Date(),

@@ -16,7 +16,7 @@ export function parseSortParams(sortBy: string | null, sortOrder: string | null)
 export function buildOrderBy(
   sortBy: ColumnKey | null,
   sortOrder: SortOrder,
-): Prisma.containersOrderByWithRelationInput[] {
+): Prisma.google_sheetOrderByWithRelationInput[] {
   if (!sortBy) {
     // 默认按 sort 字段排序（PostgreSQL null 在 asc 时默认排最后）
     return [{ sort: "asc" }, { id: "asc" }];
@@ -47,8 +47,8 @@ function parseFilterDate(value: string) {
 
 export function buildColumnFilters(
   filters: Partial<Record<ColumnKey, string>>,
-): Prisma.containersWhereInput[] {
-  const conditions: Prisma.containersWhereInput[] = [];
+): Prisma.google_sheetWhereInput[] {
+  const conditions: Prisma.google_sheetWhereInput[] = [];
 
   for (const [key, value] of Object.entries(filters)) {
     if (!value) continue;
@@ -85,8 +85,8 @@ export function buildSearchWhere(
   containerNo?: string | null,
   mbl?: string | null,
   customer?: string | null,
-): Prisma.containersWhereInput | undefined {
-  const conditions: Prisma.containersWhereInput[] = [];
+): Prisma.google_sheetWhereInput | undefined {
+  const conditions: Prisma.google_sheetWhereInput[] = [];
 
   if (search) {
     conditions.push({

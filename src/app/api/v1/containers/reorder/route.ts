@@ -27,11 +27,11 @@ export async function PUT(request: Request) {
 
     await prisma.$transaction(
       ids.map((id, index) =>
-        prisma.containers.update({
+        prisma.google_sheet.update({
           where: { id: BigInt(id), deleted_at: null },
           data: {
             sort: base + BigInt(index),
-            users_containers_updated_byTousers: { connect: { id: BigInt(user.id) } },
+            users_google_sheet_updated_byTousers: { connect: { id: BigInt(user.id) } },
           },
         }),
       ),

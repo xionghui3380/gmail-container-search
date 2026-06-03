@@ -12,7 +12,7 @@ export async function GET(request: Request, { params }: Params) {
   try {
     const containerId = BigInt(params.id);
 
-    const history = await prisma.containers_history.findMany({
+    const history = await prisma.google_sheet_history.findMany({
       where: { container_id: containerId },
       orderBy: { version: "desc" },
       include: {
@@ -28,7 +28,7 @@ export async function GET(request: Request, { params }: Params) {
 
     return success(serialize(history));
   } catch (err) {
-    console.error("[containers history GET]", err);
+    console.error("[google_sheet history GET]", err);
     return error("查询历史记录失败", 500);
   }
 }

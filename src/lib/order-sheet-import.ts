@@ -164,7 +164,6 @@ export async function parseOrderSheetBuffer(buffer: Buffer): Promise<OrderSheetI
       container_type: "40",
       operation_type: "lcl",
       backend_delivery: false,
-      is_correct: true,
     };
 
     line.forEach((value, colIndex) => {

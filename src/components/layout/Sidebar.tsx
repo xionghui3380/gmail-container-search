@@ -2,13 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Container, LayoutDashboard, Users } from "lucide-react";
+import { Container, LayoutDashboard, Package, Users } from "lucide-react";
 
 const navItems = [
   {
     href: "/containers",
     label: "集装箱管理",
     icon: Container,
+  },
+  {
+    href: "/cargo",
+    label: "货柜管理",
+    icon: Package,
   },
   {
     href: "/customers",

@@ -1,9 +1,16 @@
-import type { parse_status } from "@prisma/client";
+import type { parse_status, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { buildContainerCreateInput, buildContainerUpdateInput } from "@/lib/container-mapper";
 import {
+  mergeParseMeta,
+  setParseMetaFailed,
+  setParseMetaParsing,
+  upsertParseMeta,
+} from "@/lib/container-parse-meta";
+import {
   deliveryItemToCreateInput,
   parseDeliveryExcelBuffer,
+  type DeliveryParseResult,
 } from "@/lib/delivery-excel-parser";
 import {
   downloadAttachmentBuffer,
@@ -22,9 +29,84 @@ export type ParseEmailResult = {
   email?: EmailSearchResult;
   itemCount: number;
   summaryCount: number;
+  summaries: Array<{
+    warehouse_code: string;
+    total_cartons: number;
+    item_count: number;
+  }>;
   warnings: string[];
   errorMessage?: string;
 };
+
+type EmailMeta = {
+  messageId: string;
+  subject?: string;
+  from?: string;
+  date?: string | null;
+  attachmentName: string;
+};
+
+async function saveParsedDeliveryData(
+  tx: Prisma.TransactionClient,
+  containerId: bigint,
+  normalizedNo: string,
+  parsed: DeliveryParseResult,
+  userId: bigint,
+  emailMeta: EmailMeta,
+  parseStatus: parse_status,
+  searchLogMessage?: string,
+) {
+  if (searchLogMessage) {
+    await writeParseLog(tx, normalizedNo, "search_email", "success", searchLogMessage);
+  }
+  await writeParseLog(
+    tx,
+    normalizedNo,
+    "parse_excel",
+    parsed.warnings.length > 0 ? "warning" : "success",
+    `解析 ${parsed.items.length} 条明细，表头第 ${parsed.headerRow} 行`,
+  );
+
+  await tx.delivery_items.deleteMany({ where: { container_no: normalizedNo } });
+  await tx.warehouse_summaries.deleteMany({ where: { container_no: normalizedNo } });
+
+  await tx.delivery_items.createMany({
+    data: parsed.items.map((item) =>
+      deliveryItemToCreateInput({ ...item, container_no: normalizedNo }),
+    ),
+  });
+
+  for (const summary of parsed.summaries) {
+    await tx.warehouse_summaries.create({
+      data: {
+        container_no: normalizedNo,
+        warehouse_code: summary.warehouse_code,
+        total_cartons: summary.total_cartons,
+        item_count: summary.item_count,
+      },
+    });
+  }
+
+  await upsertParseMeta(tx, normalizedNo, {
+    parse_status: parseStatus,
+    error_message: parsed.warnings.length > 0 ? parsed.warnings.join("；") : null,
+    email_message_id: emailMeta.messageId,
+    email_subject: emailMeta.subject ?? null,
+    email_from: emailMeta.from ?? null,
+    email_date: emailMeta.date ? new Date(emailMeta.date) : null,
+    attachment_name: emailMeta.attachmentName,
+    is_correct: true,
+  });
+
+  await tx.google_sheet.update({
+    where: { id: containerId },
+    data: {
+      users_google_sheet_updated_byTousers: { connect: { id: userId } },
+    },
+  });
+
+  await writeParseLog(tx, normalizedNo, "save_database", "success", "数据入库完成");
+}
 
 export async function importOrderSheetRows(
   rows: OrderSheetRow[],
@@ -35,7 +117,7 @@ export async function importOrderSheetRows(
   let updated = 0;
   const errors: Array<{ containerNo: string; message: string }> = [];
 
-  const maxSort = await prisma.containers.aggregate({
+  const maxSort = await prisma.google_sheet.aggregate({
     where: { deleted_at: null },
     _max: { sort: true },
   });
@@ -54,7 +136,7 @@ export async function importOrderSheetRows(
     }
 
     try {
-      const existing = await prisma.containers.findFirst({
+      const existing = await prisma.google_sheet.findFirst({
         where: { container_no: parsed.data.container_no },
       });
 
@@ -62,14 +144,14 @@ export async function importOrderSheetRows(
         if (!upsert) continue;
         const updateData = buildContainerUpdateInput(parsed.data, userId);
         updateData.deleted_at = null;
-        updateData.users_containers_deleted_byTousers = { disconnect: true };
-        await prisma.containers.update({
+        updateData.users_google_sheet_deleted_byTousers = { disconnect: true };
+        await prisma.google_sheet.update({
           where: { id: existing.id },
           data: updateData,
         });
         updated += 1;
       } else {
-        await prisma.containers.create({
+        await prisma.google_sheet.create({
           data: {
             ...buildContainerCreateInput(parsed.data, userId),
             sort: nextSort,
@@ -103,17 +185,14 @@ export async function parseContainerEmail(
 ): Promise<ParseEmailResult> {
   const normalizedNo = containerNo.trim().toUpperCase();
 
-  const container = await prisma.containers.findFirst({
+  const container = await prisma.google_sheet.findFirst({
     where: { container_no: normalizedNo, deleted_at: null },
   });
   if (!container) {
     throw new Error(`柜号 ${normalizedNo} 不存在，请先导入订单表`);
   }
 
-  await prisma.containers.update({
-    where: { id: container.id },
-    data: { parse_status: "parsing", error_message: null },
-  });
+  await setParseMetaParsing(normalizedNo);
 
   try {
     const emails = await searchEmailsByContainer(
@@ -126,20 +205,14 @@ export async function parseContainerEmail(
     if (emails.length === 0) {
       await prisma.$transaction(async (tx) => {
         await writeParseLog(tx, normalizedNo, "search_email", "failed", "未找到相关邮件");
-        await tx.containers.update({
-          where: { id: container.id },
-          data: {
-            parse_status: "failed",
-            error_message: "未找到相关邮件",
-            is_correct: false,
-          },
-        });
+        await setParseMetaFailed(tx, normalizedNo, "未找到相关邮件");
       });
       return {
         containerNo: normalizedNo,
         parseStatus: "failed",
         itemCount: 0,
         summaryCount: 0,
+        summaries: [],
         warnings: [],
         errorMessage: "未找到相关邮件",
       };
@@ -152,17 +225,11 @@ export async function parseContainerEmail(
     if (!excelAttachment) {
       await prisma.$transaction(async (tx) => {
         await writeParseLog(tx, normalizedNo, "download_attachment", "failed", "邮件无 Excel 附件");
-        await tx.containers.update({
-          where: { id: container.id },
-          data: {
-            parse_status: "failed",
-            error_message: "邮件无 Excel 附件",
-            email_message_id: detail.id,
-            email_subject: detail.subject,
-            email_from: detail.from,
-            email_date: detail.date ? new Date(detail.date) : null,
-            is_correct: false,
-          },
+        await setParseMetaFailed(tx, normalizedNo, "邮件无 Excel 附件", {
+          email_message_id: detail.id,
+          email_subject: detail.subject,
+          email_from: detail.from,
+          email_date: detail.date ? new Date(detail.date) : null,
         });
       });
       return {
@@ -171,6 +238,7 @@ export async function parseContainerEmail(
         email: best,
         itemCount: 0,
         summaryCount: 0,
+        summaries: [],
         warnings: [],
         errorMessage: "邮件无 Excel 附件",
       };
@@ -187,14 +255,8 @@ export async function parseContainerEmail(
     if (parsed.items.length === 0) {
       await prisma.$transaction(async (tx) => {
         await writeParseLog(tx, normalizedNo, "parse_excel", "failed", "附件中无有效明细行");
-        await tx.containers.update({
-          where: { id: container.id },
-          data: {
-            parse_status: "failed",
-            error_message: "附件中无有效明细行",
-            attachment_name: excelAttachment.filename,
-            is_correct: false,
-          },
+        await setParseMetaFailed(tx, normalizedNo, "附件中无有效明细行", {
+          attachment_name: excelAttachment.filename,
         });
       });
       return {
@@ -203,6 +265,196 @@ export async function parseContainerEmail(
         email: best,
         itemCount: 0,
         summaryCount: 0,
+        summaries: [],
+        warnings: parsed.warnings,
+        errorMessage: "附件中无有效明细行",
+      };
+    }
+
+    const parseStatus: parse_status =
+      parsed.warnings.length > 0 ? "partial_success" : "success";
+
+    await prisma.$transaction(async (tx) => {
+      await saveParsedDeliveryData(
+        tx,
+        container.id,
+        normalizedNo,
+        parsed,
+        userId,
+        {
+          messageId: detail.id,
+          subject: detail.subject,
+          from: detail.from,
+          date: detail.date,
+          attachmentName: excelAttachment.filename,
+        },
+        parseStatus,
+        `找到 ${emails.length} 封邮件，选用 ${best.subject || best.id}`,
+      );
+    });
+
+    return {
+      containerNo: normalizedNo,
+      parseStatus,
+      email: best,
+      itemCount: parsed.items.length,
+      summaryCount: parsed.summaries.length,
+      summaries: parsed.summaries,
+      warnings: parsed.warnings,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await prisma.$transaction(async (tx) => {
+      await writeParseLog(tx, normalizedNo, "parse_pipeline", "failed", message);
+      await setParseMetaFailed(tx, normalizedNo, message);
+    });
+    throw err;
+  }
+}
+
+/** 用户从邮件列表选中指定附件：下载 → 解析 → 入库 → 汇总 */
+export async function parseContainerAttachment(
+  containerNo: string,
+  messageId: string,
+  attachmentId: string,
+  attachmentName: string,
+  userId: bigint,
+  accessToken: string,
+  refreshToken?: string,
+): Promise<ParseEmailResult> {
+  const normalizedNo = containerNo.trim().toUpperCase();
+
+  const container = await prisma.google_sheet.findFirst({
+    where: { container_no: normalizedNo, deleted_at: null },
+  });
+  if (!container) {
+    throw new Error(`柜号 ${normalizedNo} 不存在，请先导入订单表`);
+  }
+
+  await setParseMetaParsing(normalizedNo);
+
+  try {
+    const detail = await getEmailDetail(messageId, accessToken, refreshToken);
+    const attachment = detail.attachments.find(
+      (a) => a.attachmentId === attachmentId || a.filename === attachmentName,
+    );
+
+    if (!attachment?.isExcel) {
+      await prisma.$transaction(async (tx) => {
+        await writeParseLog(tx, normalizedNo, "download_attachment", "failed", "未找到 Excel 附件");
+        await setParseMetaFailed(tx, normalizedNo, "未找到 Excel 附件");
+      });
+      return {
+        containerNo: normalizedNo,
+        parseStatus: "failed",
+        itemCount: 0,
+        summaryCount: 0,
+        summaries: [],
+        warnings: [],
+        errorMessage: "未找到 Excel 附件",
+      };
+    }
+
+    const buffer = await downloadAttachmentBuffer(
+      messageId,
+      attachment.attachmentId,
+      accessToken,
+      refreshToken,
+    );
+    const parsed = await parseDeliveryExcelBuffer(buffer, normalizedNo);
+
+    if (parsed.items.length === 0) {
+      await prisma.$transaction(async (tx) => {
+        await writeParseLog(tx, normalizedNo, "parse_excel", "failed", "附件中无有效明细行");
+        await setParseMetaFailed(tx, normalizedNo, "附件中无有效明细行", {
+          attachment_name: attachment.filename,
+        });
+      });
+      return {
+        containerNo: normalizedNo,
+        parseStatus: "failed",
+        itemCount: 0,
+        summaryCount: 0,
+        summaries: [],
+        warnings: parsed.warnings,
+        errorMessage: "附件中无有效明细行",
+      };
+    }
+
+    const parseStatus: parse_status =
+      parsed.warnings.length > 0 ? "partial_success" : "success";
+
+    await prisma.$transaction(async (tx) => {
+      await saveParsedDeliveryData(
+        tx,
+        container.id,
+        normalizedNo,
+        parsed,
+        userId,
+        {
+          messageId: detail.id,
+          subject: detail.subject,
+          from: detail.from,
+          date: detail.date,
+          attachmentName: attachment.filename,
+        },
+        parseStatus,
+        `手动选择邮件：${detail.subject || detail.id}，附件 ${attachment.filename}`,
+      );
+    });
+
+    return {
+      containerNo: normalizedNo,
+      parseStatus,
+      itemCount: parsed.items.length,
+      summaryCount: parsed.summaries.length,
+      summaries: parsed.summaries,
+      warnings: parsed.warnings,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await prisma.$transaction(async (tx) => {
+      await writeParseLog(tx, normalizedNo, "parse_pipeline", "failed", message);
+      await setParseMetaFailed(tx, normalizedNo, message);
+    });
+    throw err;
+  }
+}
+
+/** 本地上传派送表 Excel：解析 → 入库 → 汇总（无需 Gmail） */
+export async function parseContainerUploadBuffer(
+  containerNo: string,
+  buffer: Buffer,
+  fileName: string,
+  userId: bigint,
+): Promise<ParseEmailResult> {
+  const normalizedNo = containerNo.trim().toUpperCase();
+
+  const container = await prisma.google_sheet.findFirst({
+    where: { container_no: normalizedNo, deleted_at: null },
+  });
+  if (!container) {
+    throw new Error(`柜号 ${normalizedNo} 不存在，请先导入订单表`);
+  }
+
+  await setParseMetaParsing(normalizedNo);
+
+  try {
+    const parsed = await parseDeliveryExcelBuffer(buffer, normalizedNo);
+
+    if (parsed.items.length === 0) {
+      await prisma.$transaction(async (tx) => {
+        await writeParseLog(tx, normalizedNo, "parse_excel", "failed", "附件中无有效明细行");
+        await setParseMetaFailed(tx, normalizedNo, "附件中无有效明细行", {
+          attachment_name: fileName,
+        });
+      });
+      return {
+        containerNo: normalizedNo,
+        parseStatus: "failed",
+        itemCount: 0,
+        summaryCount: 0,
+        summaries: [],
         warnings: parsed.warnings,
         errorMessage: "附件中无有效明细行",
       };
@@ -215,70 +467,40 @@ export async function parseContainerEmail(
       await writeParseLog(
         tx,
         normalizedNo,
-        "search_email",
+        "upload_attachment",
         "success",
-        `找到 ${emails.length} 封邮件，选用 ${best.subject || best.id}`,
+        `本地上传文件：${fileName}`,
       );
-      await writeParseLog(
+      await saveParsedDeliveryData(
         tx,
+        container.id,
         normalizedNo,
-        "parse_excel",
-        parsed.warnings.length > 0 ? "warning" : "success",
-        `解析 ${parsed.items.length} 条明细，表头第 ${parsed.headerRow} 行`,
-      );
-
-      await tx.delivery_items.deleteMany({ where: { container_no: normalizedNo } });
-      await tx.warehouse_summaries.deleteMany({ where: { container_no: normalizedNo } });
-
-      await tx.delivery_items.createMany({
-        data: parsed.items.map(deliveryItemToCreateInput),
-      });
-
-      for (const summary of parsed.summaries) {
-        await tx.warehouse_summaries.create({
-          data: {
-            container_no: normalizedNo,
-            warehouse_code: summary.warehouse_code,
-            total_cartons: summary.total_cartons,
-            item_count: summary.item_count,
-          },
-        });
-      }
-
-      await tx.containers.update({
-        where: { id: container.id },
-        data: {
-          parse_status: parseStatus,
-          error_message: parsed.warnings.length > 0 ? parsed.warnings.join("；") : null,
-          email_message_id: detail.id,
-          email_subject: detail.subject,
-          email_from: detail.from,
-          email_date: detail.date ? new Date(detail.date) : null,
-          attachment_name: excelAttachment.filename,
-          is_correct: true,
-          users_containers_updated_byTousers: { connect: { id: userId } },
+        parsed,
+        userId,
+        {
+          messageId: `upload:${Date.now()}`,
+          subject: `本地上传：${fileName}`,
+          from: "local-upload",
+          date: new Date().toISOString(),
+          attachmentName: fileName,
         },
-      });
-
-      await writeParseLog(tx, normalizedNo, "save_database", "success", "数据入库完成");
+        parseStatus,
+      );
     });
 
     return {
       containerNo: normalizedNo,
       parseStatus,
-      email: best,
       itemCount: parsed.items.length,
       summaryCount: parsed.summaries.length,
+      summaries: parsed.summaries,
       warnings: parsed.warnings,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await prisma.$transaction(async (tx) => {
       await writeParseLog(tx, normalizedNo, "parse_pipeline", "failed", message);
-      await tx.containers.update({
-        where: { id: container.id },
-        data: { parse_status: "failed", error_message: message, is_correct: false },
-      });
+      await setParseMetaFailed(tx, normalizedNo, message);
     });
     throw err;
   }
@@ -286,12 +508,13 @@ export async function parseContainerEmail(
 
 export async function getContainerParseResult(containerNo: string) {
   const normalizedNo = containerNo.trim().toUpperCase();
-  const container = await prisma.containers.findFirst({
+  const container = await prisma.google_sheet.findFirst({
     where: { container_no: normalizedNo, deleted_at: null },
     include: {
       warehouse_summaries: { orderBy: { warehouse_code: "asc" } },
+      container_parse_meta: true,
     },
   });
   if (!container) return null;
-  return container;
+  return mergeParseMeta(container);
 }

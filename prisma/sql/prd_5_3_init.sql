@@ -1,15 +1,29 @@
-/**
- * 全量建表 SQL（PostgreSQL）
- * 与 prisma/schema.prisma 保持一致，可用于全新环境初始化。
- * 若已通过 Prisma migrate 建库，无需重复执行。
- */
+-- PRD 5.3 全量建表（四表 + users 最小依赖）
+-- 适用于空库或仅缺解析相关表的环境
 
-CREATE TYPE user_role AS ENUM ('admin', 'operator', 'viewer');
-CREATE TYPE operation_type AS ENUM ('整柜', '拆柜');
-CREATE TYPE parse_status AS ENUM ('pending', 'parsing', 'success', 'failed', 'partial_success');
-CREATE TYPE log_status AS ENUM ('success', 'failed', 'warning');
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
-CREATE TABLE users (
+DO $$ BEGIN
+  CREATE TYPE user_role AS ENUM ('admin', 'operator', 'viewer');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE TYPE operation_type AS ENUM ('整柜', '拆柜');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE TYPE parse_status AS ENUM ('pending', 'parsing', 'success', 'failed', 'partial_success');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE TYPE log_status AS ENUM ('success', 'failed', 'warning');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE TABLE IF NOT EXISTS users (
   id              BIGSERIAL PRIMARY KEY,
   username        VARCHAR(50)  NOT NULL UNIQUE,
   password_hash   VARCHAR(255) NOT NULL,
@@ -26,18 +40,15 @@ CREATE TABLE users (
   remarks         TEXT
 );
 
-CREATE INDEX idx_users_role ON users(role);
-CREATE INDEX idx_users_is_enabled ON users(is_enabled);
-
-CREATE TABLE containers (
+CREATE TABLE IF NOT EXISTS containers (
   id                   BIGSERIAL PRIMARY KEY,
   container_type       VARCHAR(10)   NOT NULL DEFAULT '40',
   weight               DECIMAL(12, 2),
   mbl                  VARCHAR(50),
   vessel_name          VARCHAR(30),
   voyage_no            VARCHAR(30),
-  terminal             VARCHAR(50)   NOT NULL,
-  customer             VARCHAR(100)  NOT NULL,
+  terminal             VARCHAR(50)   NOT NULL DEFAULT '-',
+  customer             VARCHAR(100)  NOT NULL DEFAULT '-',
   container_no         VARCHAR(20)   NOT NULL UNIQUE,
   pickup_company       VARCHAR(100),
   return_company       VARCHAR(100),
@@ -68,7 +79,7 @@ CREATE TABLE containers (
   attachment_name      VARCHAR(255),
   parse_status         parse_status  NOT NULL DEFAULT 'pending',
   error_message        TEXT,
-  created_by           BIGINT        NOT NULL REFERENCES users(id),
+  created_by           BIGINT        NOT NULL REFERENCES users(id) DEFAULT 1,
   updated_by           BIGINT REFERENCES users(id),
   created_at           TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
   updated_at           TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
@@ -77,28 +88,7 @@ CREATE TABLE containers (
   sort                 BIGINT
 );
 
-CREATE INDEX idx_containers_created_at ON containers(created_at DESC);
-CREATE INDEX idx_containers_customer ON containers(customer);
-CREATE INDEX idx_containers_eta_date ON containers(eta_date);
-CREATE INDEX idx_containers_lfd_date ON containers(lfd_date);
-CREATE INDEX idx_containers_parse_status ON containers(parse_status);
-CREATE INDEX idx_containers_pickup_driver ON containers(pickup_driver);
-CREATE INDEX idx_containers_terminal ON containers(terminal);
-
-CREATE TABLE google_sheet_history (
-  id           BIGSERIAL PRIMARY KEY,
-  container_id BIGINT      NOT NULL REFERENCES google_sheet(id) ON DELETE CASCADE,
-  version      INT         NOT NULL,
-  snapshot     JSONB       NOT NULL,
-  operated_by  BIGINT      NOT NULL REFERENCES users(id),
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT uk_google_sheet_history_container_version UNIQUE (container_id, version)
-);
-
-CREATE INDEX idx_google_sheet_history_container_id ON google_sheet_history(container_id);
-CREATE INDEX idx_google_sheet_history_created_at ON google_sheet_history(created_at DESC);
-
-CREATE TABLE delivery_items (
+CREATE TABLE IF NOT EXISTS delivery_items (
   id                  BIGSERIAL PRIMARY KEY,
   container_no        VARCHAR(20) NOT NULL REFERENCES containers(container_no) ON DELETE CASCADE,
   customer_code       VARCHAR(50),
@@ -117,11 +107,7 @@ CREATE TABLE delivery_items (
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_delivery_items_container_no ON delivery_items(container_no);
-CREATE INDEX idx_delivery_items_fba_id ON delivery_items(fba_id);
-CREATE INDEX idx_delivery_items_warehouse_code ON delivery_items(warehouse_code);
-
-CREATE TABLE warehouse_summaries (
+CREATE TABLE IF NOT EXISTS warehouse_summaries (
   id             BIGSERIAL PRIMARY KEY,
   container_no   VARCHAR(20) NOT NULL REFERENCES containers(container_no) ON DELETE CASCADE,
   warehouse_code VARCHAR(50) NOT NULL,
@@ -132,36 +118,24 @@ CREATE TABLE warehouse_summaries (
   CONSTRAINT uk_warehouse_summaries_container_warehouse UNIQUE (container_no, warehouse_code)
 );
 
-CREATE INDEX idx_warehouse_summaries_container_no ON warehouse_summaries(container_no);
-
-CREATE TABLE parse_logs (
+CREATE TABLE IF NOT EXISTS parse_logs (
   id           BIGSERIAL PRIMARY KEY,
   container_no VARCHAR(20) NOT NULL REFERENCES containers(container_no) ON DELETE CASCADE,
-  step         VARCHAR(50) NOT NULL,
+  step         VARCHAR(100) NOT NULL,
   status       log_status  NOT NULL,
   message      TEXT,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_parse_logs_container_no ON parse_logs(container_no);
-CREATE INDEX idx_parse_logs_created_at ON parse_logs(created_at DESC);
-CREATE INDEX idx_parse_logs_status ON parse_logs(status);
+CREATE INDEX IF NOT EXISTS idx_delivery_items_container_no ON delivery_items(container_no);
+CREATE INDEX IF NOT EXISTS idx_delivery_items_fba_id ON delivery_items(fba_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_items_warehouse_code ON delivery_items(warehouse_code);
+CREATE INDEX IF NOT EXISTS idx_delivery_items_is_warning ON delivery_items(container_no, is_warning) WHERE is_warning = TRUE;
+CREATE INDEX IF NOT EXISTS idx_warehouse_summaries_container_no ON warehouse_summaries(container_no);
+CREATE INDEX IF NOT EXISTS idx_parse_logs_container_no ON parse_logs(container_no);
+CREATE INDEX IF NOT EXISTS idx_parse_logs_created_at ON parse_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_containers_parse_status ON containers(parse_status);
+CREATE INDEX IF NOT EXISTS idx_containers_container_no ON containers(container_no);
 
-CREATE TABLE customers (
-  id          BIGSERIAL PRIMARY KEY,
-  name        VARCHAR(100) NOT NULL,
-  contact     VARCHAR(50),
-  phone       VARCHAR(20),
-  email       VARCHAR(100),
-  address     VARCHAR(200),
-  is_active   BOOLEAN     NOT NULL DEFAULT TRUE,
-  remarks     TEXT,
-  created_by  BIGINT      NOT NULL REFERENCES users(id),
-  updated_by  BIGINT REFERENCES users(id),
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  deleted_at  TIMESTAMPTZ
-);
-
-CREATE INDEX idx_customers_name ON customers(name);
-CREATE INDEX idx_customers_created_at ON customers(created_at DESC);
+-- 若 delivery_items 已存在但缺 is_warning
+ALTER TABLE delivery_items ADD COLUMN IF NOT EXISTS is_warning BOOLEAN NOT NULL DEFAULT FALSE;

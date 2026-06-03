@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -22,12 +22,10 @@ import {
   ArrowUp,
   ArrowUpDown,
   GripVertical,
-  Mail,
   Plus,
   RefreshCw,
   Search,
   Trash2,
-  Upload,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -35,7 +33,6 @@ import { toast } from "sonner";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import ContainerHistoryDialog from "@/components/ContainerHistoryDialog";
 import GmailAuthNotifier from "@/components/GmailAuthNotifier";
-import GmailSearchDialog from "@/components/GmailSearchDialog";
 import {
   type ColumnKey,
   type DataColumn,
@@ -95,26 +92,6 @@ const emptyRowForm = (): RowForm => ({
 
 const inputClass =
   "h-8 w-full min-w-[72px] rounded border border-slate-200 px-2 text-sm outline-none focus:border-blue-400";
-
-function toInputDate(value?: string | null) {
-  if (!value) return "";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "" : format(date, "yyyy-MM-dd");
-}
-
-function rowToForm(row: ContainerRow): RowForm {
-  return {
-    container_no: row.container_no,
-    container_type: row.container_type,
-    terminal: row.terminal,
-    customer: row.customer,
-    mbl: row.mbl || "",
-    operation_type: row.operation_type === "lcl" ? "lcl" : "fcl",
-    eta_date: toInputDate(row.eta_date),
-    lfd_date: toInputDate(row.lfd_date),
-    pickup_driver: row.pickup_driver || "",
-  };
-}
 
 function buildPayload(form: RowForm) {
   return {
@@ -320,38 +297,24 @@ type SortableTableRowProps = {
   row: ContainerRow;
   canWrite: boolean;
   canDragRows: boolean;
-  isEditing: boolean;
   selected: Set<string>;
-  saving: boolean;
   visibleColumns: DataColumn[];
-  editRow: RowForm;
   getWidth: (key: ColumnKey) => number;
   onToggleSelect: (id: string) => void;
-  onStartEdit: (row: ContainerRow) => void;
-  onSaveEdit: () => void;
-  onCancelEdit: () => void;
-  onDelete: (id: string) => void;
   onViewHistory: (id: string) => void;
-  onEditRowChange: (field: keyof RowForm, value: RowForm[keyof RowForm]) => void;
+  onDelete: (id: string) => void;
 };
 
 function SortableTableRow({
   row,
   canWrite,
   canDragRows,
-  isEditing,
   selected,
-  saving,
   visibleColumns,
-  editRow,
   getWidth,
   onToggleSelect,
-  onStartEdit,
-  onSaveEdit,
-  onCancelEdit,
-  onDelete,
   onViewHistory,
-  onEditRowChange,
+  onDelete,
 }: SortableTableRowProps) {
   const {
     attributes,
@@ -362,7 +325,7 @@ function SortableTableRow({
     isDragging,
   } = useSortable({
     id: row.id,
-    disabled: !canDragRows || isEditing,
+    disabled: !canDragRows,
   });
 
   const style = {
@@ -374,23 +337,12 @@ function SortableTableRow({
     <tr
       ref={setNodeRef}
       style={style}
-      onDoubleClick={() => onStartEdit(row)}
       className={`border-b border-slate-100 ${
-        isEditing
-          ? "border-t-2 border-amber-200 bg-amber-50/50"
-          : isDragging
-            ? "relative z-10 bg-white opacity-90 shadow-md"
-            : canWrite
-              ? "cursor-pointer hover:bg-slate-50/80"
-              : "hover:bg-slate-50/80"
+        isDragging
+          ? "relative z-10 bg-white opacity-90 shadow-md"
+          : "hover:bg-slate-50/80"
       }`}
-      title={
-        canDragRows && !isEditing
-          ? "拖拽左侧手柄调整顺序，双击编辑"
-          : canWrite && !isEditing
-            ? "双击编辑"
-            : undefined
-      }
+      title={canDragRows ? "拖拽左侧手柄调整顺序" : undefined}
     >
       {canWrite && (
         <td className="px-2 py-3" onDoubleClick={(e) => e.stopPropagation()}>
@@ -413,57 +365,33 @@ function SortableTableRow({
         </td>
       )}
 
-      {isEditing ? (
-        <>
-          {visibleColumns.map((column) => (
-            <td
-              key={`edit-${row.id}-${column.key}`}
-              style={{ width: getWidth(column.key) }}
-              className="px-2 py-2"
+      {visibleColumns.map((column) => (
+        <td
+          key={`read-${row.id}-${column.key}`}
+          style={{ width: getWidth(column.key) }}
+          className="truncate px-2 py-3 text-slate-700"
+        >
+          {renderReadOnlyCell(row, column.key)}
+        </td>
+      ))}
+      {canWrite && (
+        <td className="px-2 py-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onViewHistory(row.id)}
+              className="text-blue-500 hover:text-blue-700 hover:underline"
             >
-              {renderEditableInput(column.key, editRow, (field, value) =>
-                onEditRowChange(field, value),
-              )}
-            </td>
-          ))}
-          <td className="px-2 py-2" onDoubleClick={(e) => e.stopPropagation()}>
-            <ActionButtons saving={saving} onSave={onSaveEdit} onCancel={onCancelEdit} />
-          </td>
-        </>
-      ) : (
-        <>
-          {visibleColumns.map((column) => (
-            <td
-              key={`read-${row.id}-${column.key}`}
-              style={{ width: getWidth(column.key) }}
-              className="truncate px-2 py-3 text-slate-700"
+              历史
+            </button>
+            <span className="text-slate-300">|</span>
+            <button
+              onClick={() => onDelete(row.id)}
+              className="text-red-500 hover:text-red-700 hover:underline"
             >
-              {renderReadOnlyCell(row, column.key)}
-            </td>
-          ))}
-          {canWrite && (
-            <td className="px-2 py-3" onDoubleClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => onViewHistory(row.id)}
-                  className="text-blue-500 hover:text-blue-700 hover:underline"
-                >
-                  历史
-                </button>
-                <span className="text-slate-300">|</span>
-                {/* Gmail 邮件搜索按钮：根据柜号自动搜索相关邮件 */}
-                <GmailSearchDialog containerNo={row.container_no} />
-                <span className="text-slate-300">|</span>
-                <button
-                  onClick={() => onDelete(row.id)}
-                  className="text-red-500 hover:text-red-700 hover:underline"
-                >
-                  删除
-                </button>
-              </div>
-            </td>
-          )}
-        </>
+              删除
+            </button>
+          </div>
+        </td>
       )}
     </tr>
   );
@@ -483,16 +411,11 @@ export default function ContainersPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isAddingRow, setIsAddingRow] = useState(false);
   const [newRow, setNewRow] = useState<RowForm>(emptyRowForm);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editRow, setEditRow] = useState<RowForm>(emptyRowForm);
   const [saving, setSaving] = useState(false);
   const [sortState, setSortState] = useState<SortState>({ column: null, order: "asc" });
   const [reordering, setReordering] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [historyContainerId, setHistoryContainerId] = useState<string | null>(null);
-  const [gmailConnected, setGmailConnected] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const importInputRef = useRef<HTMLInputElement>(null);
 
   const rowDragSensors = useSensors(
     useSensor(PointerSensor, {
@@ -516,8 +439,8 @@ export default function ContainersPage() {
   );
 
   const canDragRows = useMemo(
-    () => canWrite && !sortState.column && !isAddingRow && !editingId && !loading,
-    [canWrite, sortState.column, isAddingRow, editingId, loading],
+    () => canWrite && !sortState.column && !isAddingRow && !loading,
+    [canWrite, sortState.column, isAddingRow, loading],
   );
 
   const loadUser = useCallback(async () => {
@@ -565,15 +488,6 @@ export default function ContainersPage() {
   useEffect(() => {
     loadRows();
   }, [loadRows]);
-
-  useEffect(() => {
-    fetch("/api/v1/gmail/status")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json) => {
-        if (json?.data?.connected) setGmailConnected(true);
-      })
-      .catch(() => undefined);
-  }, []);
 
   function handleSortClick(key: ColumnKey) {
     setPage(1);
@@ -624,7 +538,6 @@ export default function ContainersPage() {
   }
 
   function handleStartAdd() {
-    setEditingId(null);
     setNewRow(emptyRowForm());
     setIsAddingRow(true);
   }
@@ -632,18 +545,6 @@ export default function ContainersPage() {
   function handleCancelAdd() {
     setIsAddingRow(false);
     setNewRow(emptyRowForm());
-  }
-
-  function handleStartEdit(row: ContainerRow) {
-    if (!canWrite || isAddingRow) return;
-    setIsAddingRow(false);
-    setEditingId(row.id);
-    setEditRow(rowToForm(row));
-  }
-
-  function handleCancelEdit() {
-    setEditingId(null);
-    setEditRow(emptyRowForm());
   }
 
   async function handleSaveAdd() {
@@ -675,35 +576,6 @@ export default function ContainersPage() {
     }
   }
 
-  async function handleSaveEdit() {
-    if (!editingId) return;
-    const message = validateRowForm(editRow);
-    if (message) {
-      toast.error(message);
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/v1/containers/${editingId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildPayload(editRow)),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        toast.error(json.message ?? "保存失败");
-        if (json.errors?.[0]?.message) toast.error(json.errors[0].message);
-        return;
-      }
-      toast.success("更新成功");
-      handleCancelEdit();
-      loadRows();
-    } finally {
-      setSaving(false);
-    }
-  }
-
   function handleViewHistory(id: string) {
     setHistoryContainerId(id);
     setHistoryDialogOpen(true);
@@ -719,34 +591,6 @@ export default function ContainersPage() {
     }
     toast.success("已删除");
     loadRows();
-  }
-
-  async function handleImportExcel(file: File) {
-    setImporting(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/v1/containers/import", {
-        method: "POST",
-        body: formData,
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        toast.error(json.message ?? "导入失败");
-        return;
-      }
-      toast.success(
-        `导入完成：新增 ${json.data.created}，更新 ${json.data.updated}，跳过 ${json.data.skipped}`,
-      );
-      if (json.data.errors?.length) {
-        toast.warning(`有 ${json.data.errors.length} 行未入库`);
-      }
-      setPage(1);
-      loadRows();
-    } finally {
-      setImporting(false);
-      if (importInputRef.current) importInputRef.current.value = "";
-    }
   }
 
   async function handleBatchDelete() {
@@ -799,7 +643,7 @@ export default function ContainersPage() {
       onLogout={handleLogout}
     >
       <Suspense fallback={null}>
-        <GmailAuthNotifier onConnected={() => setGmailConnected(true)} />
+        <GmailAuthNotifier />
       </Suspense>
       <div className="mb-4 flex items-center gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -847,44 +691,12 @@ export default function ContainersPage() {
             <RefreshCw size={15} />
             刷新
           </button>
-          <button
-            onClick={() => {
-              window.location.href = "/api/v1/gmail/auth";
-            }}
-            className={`inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm transition-colors ${
-              gmailConnected
-                ? "border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
-                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-            }`}
-            title={gmailConnected ? "Gmail 已连接，点击可重新授权" : "连接 Gmail 以搜索邮件"}
-          >
-            <Mail size={15} />
-            {gmailConnected ? "Gmail 已连接" : "连接 Gmail"}
-          </button>
 
           {canWrite && (
             <>
-              <input
-                ref={importInputRef}
-                type="file"
-                accept=".xlsx,.xls"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void handleImportExcel(file);
-                }}
-              />
-              <button
-                onClick={() => importInputRef.current?.click()}
-                disabled={importing}
-                className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-              >
-                <Upload size={15} />
-                {importing ? "导入中..." : "导入 Excel"}
-              </button>
               <button
                 onClick={handleStartAdd}
-                disabled={isAddingRow || editingId !== null}
+                disabled={isAddingRow}
                 className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Plus size={15} />
@@ -981,21 +793,12 @@ export default function ContainersPage() {
                         row={row}
                         canWrite={canWrite}
                         canDragRows={canDragRows}
-                        isEditing={editingId === row.id}
                         selected={selected}
-                        saving={saving}
                         visibleColumns={visibleColumns}
-                        editRow={editRow}
                         getWidth={getWidth}
                         onToggleSelect={toggleSelect}
-                        onStartEdit={handleStartEdit}
-                        onSaveEdit={handleSaveEdit}
-                        onCancelEdit={handleCancelEdit}
-                        onDelete={handleDelete}
                         onViewHistory={handleViewHistory}
-                        onEditRowChange={(field, value) =>
-                          setEditRow((prev) => ({ ...prev, [field]: value }))
-                        }
+                        onDelete={handleDelete}
                       />
                     ))
                   )}

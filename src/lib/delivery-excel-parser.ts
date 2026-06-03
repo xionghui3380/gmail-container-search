@@ -214,6 +214,8 @@ export async function parseDeliveryExcelBuffer(
 export function deliveryItemToCreateInput(
   item: DeliveryItemParsed,
 ): Prisma.delivery_itemsCreateManyInput {
+  const isWarning =
+    !item.warehouse_code || item.carton_count === null || item.warnings.length > 0;
   return {
     container_no: item.container_no,
     customer_code: item.customer_code,
@@ -228,5 +230,6 @@ export function deliveryItemToCreateInput(
     actual_carton_count: item.actual_carton_count,
     pallet_count: item.pallet_count,
     warehouse_note: item.warehouse_note,
+    is_warning: isWarning,
   };
 }

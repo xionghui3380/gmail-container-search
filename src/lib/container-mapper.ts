@@ -8,20 +8,16 @@ type ContainerInput = z.infer<typeof containerCreateSchema>;
 function assignFields(
   input: Partial<ContainerInput>,
 ): Omit<
-  Prisma.containersCreateInput,
-  "created_by" | "updated_by" | "users_containers_created_byTousers" | "users_containers_updated_byTousers"
+  Prisma.google_sheetCreateInput,
+  "created_by" | "updated_by" | "users_google_sheet_created_byTousers" | "users_google_sheet_updated_byTousers"
 > {
   return {
     container_type: input.container_type ?? "40",
     weight: input.weight !== undefined ? toDecimal(input.weight) : undefined,
     mbl: input.mbl ?? undefined,
-    vessel_name: input.vessel_name ?? undefined,
-    voyage_no: input.voyage_no ?? undefined,
     terminal: input.terminal!,
     customer: input.customer!,
     container_no: input.container_no!,
-    pickup_company: input.pickup_company ?? undefined,
-    return_company: input.return_company ?? undefined,
     do_number: input.do_number ?? undefined,
     order_date: parseDate(input.order_date),
     eta_date: parseDate(input.eta_date),
@@ -32,7 +28,6 @@ function assignFields(
     forecast_window: input.forecast_window ?? undefined,
     empty_report_date: parseDate(input.empty_report_date),
     return_date: parseDate(input.return_date),
-    transport_date: parseDate(input.transport_date),
     appointment_no: input.appointment_no ?? undefined,
     appointment_time: input.appointment_time
       ? new Date(input.appointment_time)
@@ -42,7 +37,6 @@ function assignFields(
     return_driver: input.return_driver ?? undefined,
     backend_delivery: input.backend_delivery ?? false,
     appointment_colleague: input.appointment_colleague ?? undefined,
-    is_correct: input.is_correct ?? true,
     remarks: input.remarks ?? undefined,
   };
 }
@@ -50,32 +44,28 @@ function assignFields(
 export function buildContainerCreateInput(
   input: ContainerInput,
   userId: bigint,
-): Prisma.containersCreateInput {
+): Prisma.google_sheetCreateInput {
   return {
     ...assignFields(input),
-    users_containers_created_byTousers: { connect: { id: userId } },
-    users_containers_updated_byTousers: { connect: { id: userId } },
+    users_google_sheet_created_byTousers: { connect: { id: userId } },
+    users_google_sheet_updated_byTousers: { connect: { id: userId } },
   };
 }
 
 export function buildContainerUpdateInput(
   input: Partial<ContainerInput>,
   userId: bigint,
-): Prisma.containersUpdateInput {
-  const data: Prisma.containersUpdateInput = {
-    users_containers_updated_byTousers: { connect: { id: userId } },
+): Prisma.google_sheetUpdateInput {
+  const data: Prisma.google_sheetUpdateInput = {
+    users_google_sheet_updated_byTousers: { connect: { id: userId } },
   };
 
   if (input.container_type !== undefined) data.container_type = input.container_type;
   if (input.weight !== undefined) data.weight = toDecimal(input.weight);
   if (input.mbl !== undefined) data.mbl = input.mbl;
-  if (input.vessel_name !== undefined) data.vessel_name = input.vessel_name;
-  if (input.voyage_no !== undefined) data.voyage_no = input.voyage_no;
   if (input.terminal !== undefined) data.terminal = input.terminal;
   if (input.customer !== undefined) data.customer = input.customer;
   if (input.container_no !== undefined) data.container_no = input.container_no;
-  if (input.pickup_company !== undefined) data.pickup_company = input.pickup_company;
-  if (input.return_company !== undefined) data.return_company = input.return_company;
   if (input.do_number !== undefined) data.do_number = input.do_number;
   if (input.order_date !== undefined) data.order_date = parseDate(input.order_date);
   if (input.eta_date !== undefined) data.eta_date = parseDate(input.eta_date);
@@ -88,8 +78,6 @@ export function buildContainerUpdateInput(
   if (input.empty_report_date !== undefined)
     data.empty_report_date = parseDate(input.empty_report_date);
   if (input.return_date !== undefined) data.return_date = parseDate(input.return_date);
-  if (input.transport_date !== undefined)
-    data.transport_date = parseDate(input.transport_date);
   if (input.appointment_no !== undefined) data.appointment_no = input.appointment_no;
   if (input.appointment_time !== undefined) {
     data.appointment_time = input.appointment_time
@@ -104,7 +92,6 @@ export function buildContainerUpdateInput(
     data.backend_delivery = input.backend_delivery;
   if (input.appointment_colleague !== undefined)
     data.appointment_colleague = input.appointment_colleague;
-  if (input.is_correct !== undefined) data.is_correct = input.is_correct;
   if (input.remarks !== undefined) data.remarks = input.remarks;
 
   return data;

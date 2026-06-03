@@ -14,7 +14,7 @@ export async function GET(request: Request, { params }: Params) {
   const user = await requireUser(request as import("next/server").NextRequest);
   if (!user) return error("Unauthorized", 401);
 
-  const item = await prisma.containers.findFirst({
+  const item = await prisma.google_sheet.findFirst({
     where: { id: BigInt(params.id), deleted_at: null },
   });
 
@@ -41,7 +41,7 @@ export async function PUT(request: Request, { params }: Params) {
       );
     }
 
-    const existing = await prisma.containers.findFirst({
+    const existing = await prisma.google_sheet.findFirst({
       where: { id: BigInt(params.id), deleted_at: null },
     });
     if (!existing) return error("记录不存在", 404);
@@ -49,7 +49,7 @@ export async function PUT(request: Request, { params }: Params) {
     const data = buildContainerUpdateInput(parsed.data, BigInt(user.id));
     const updated = await prisma.$transaction(async (tx) => {
       await saveContainerHistory(tx, existing, BigInt(user.id));
-      return tx.containers.update({
+      return tx.google_sheet.update({
         where: { id: BigInt(params.id) },
         data,
       });
@@ -70,17 +70,17 @@ export async function DELETE(request: Request, { params }: Params) {
   if (!user) return error("Unauthorized", 401);
   if (!canDelete(user.role)) return error("权限不足", 403);
 
-  const existing = await prisma.containers.findFirst({
+  const existing = await prisma.google_sheet.findFirst({
     where: { id: BigInt(params.id), deleted_at: null },
   });
   if (!existing) return error("记录不存在", 404);
 
-  await prisma.containers.update({
+  await prisma.google_sheet.update({
     where: { id: BigInt(params.id) },
     data: {
       deleted_at: new Date(),
-      users_containers_deleted_byTousers: { connect: { id: BigInt(user.id) } },
-      users_containers_updated_byTousers: { connect: { id: BigInt(user.id) } },
+      users_google_sheet_deleted_byTousers: { connect: { id: BigInt(user.id) } },
+      users_google_sheet_updated_byTousers: { connect: { id: BigInt(user.id) } },
     },
   });
 

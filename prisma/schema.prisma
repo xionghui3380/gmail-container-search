@@ -7,21 +7,15 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
-model containers {
+/// Google Sheet 订单表（集装箱管理主表）
+model google_sheet {
   id                                 BigInt                @id @default(autoincrement())
   container_type                     String                @default("40") @db.VarChar(10)
   weight                             Decimal?              @db.Decimal(12, 2)
   mbl                                String?               @db.VarChar(50)
-  vessel_name                        String?               @db.VarChar(30)
-  voyage_no                          String?               @db.VarChar(30)
   terminal                           String                @db.VarChar(50)
   customer                           String                @db.VarChar(100)
-  container_no                       String                @unique(map: "uk_containers_container_no") @db.VarChar(20)
-  pickup_company                     String?               @db.VarChar(100)
-  return_company                     String?               @db.VarChar(100)
+  container_no                       String                @unique(map: "uk_google_sheet_container_no") @db.VarChar(20)
   do_number                          String?               @db.VarChar(50)
   order_date                         DateTime?             @db.Date
   eta_date                           DateTime?             @db.Date
@@ -32,7 +26,6 @@ model containers {
   forecast_window                    String?               @db.VarChar(50)
   empty_report_date                  DateTime?             @db.Date
   return_date                        DateTime?             @db.Date
-  transport_date                     DateTime?             @db.Date
   appointment_no                     String?               @db.VarChar(50)
   appointment_time                   DateTime?             @db.Timestamptz(6)
   warehouse_account                  String?               @db.VarChar(50)
@@ -40,15 +33,7 @@ model containers {
   return_driver                      String?               @db.VarChar(50)
   backend_delivery                   Boolean               @default(false)
   appointment_colleague              String?               @db.VarChar(50)
-  is_correct                         Boolean               @default(true)
   remarks                            String?
-  email_message_id                   String?               @db.VarChar(128)
-  email_subject                      String?               @db.VarChar(500)
-  email_from                         String?               @db.VarChar(255)
-  email_date                         DateTime?             @db.Timestamptz(6)
-  attachment_name                    String?               @db.VarChar(255)
-  parse_status                       parse_status          @default(pending)
-  error_message                      String?
   created_by                         BigInt
   updated_by                         BigInt?
   created_at                         DateTime              @default(now()) @db.Timestamptz(6)
@@ -56,37 +41,56 @@ model containers {
   deleted_at                         DateTime?             @db.Timestamptz(6)
   deleted_by                         BigInt?
   sort                               BigInt?
-  users_containers_created_byTousers users                 @relation("containers_created_byTousers", fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  users_containers_deleted_byTousers users?                @relation("containers_deleted_byTousers", fields: [deleted_by], references: [id], onUpdate: NoAction)
-  users_containers_updated_byTousers users?                @relation("containers_updated_byTousers", fields: [updated_by], references: [id], onUpdate: NoAction)
+  users_google_sheet_created_byTousers users               @relation("google_sheet_created_byTousers", fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_google_sheet_deleted_byTousers users?              @relation("google_sheet_deleted_byTousers", fields: [deleted_by], references: [id], onUpdate: NoAction)
+  users_google_sheet_updated_byTousers users?              @relation("google_sheet_updated_byTousers", fields: [updated_by], references: [id], onUpdate: NoAction)
+  container_parse_meta               container_parse_meta?
   delivery_items                     delivery_items[]
   parse_logs                         parse_logs[]
   warehouse_summaries                warehouse_summaries[]
-  containers_history                 containers_history[]
+  google_sheet_history                 google_sheet_history[]
 
-  @@index([created_at(sort: Desc)], map: "idx_containers_created_at")
-  @@index([customer], map: "idx_containers_customer")
-  @@index([eta_date], map: "idx_containers_eta_date")
-  @@index([lfd_date], map: "idx_containers_lfd_date")
-  @@index([parse_status], map: "idx_containers_parse_status")
-  @@index([pickup_driver], map: "idx_containers_pickup_driver")
-  @@index([terminal], map: "idx_containers_terminal")
+  @@index([created_at(sort: Desc)], map: "idx_google_sheet_created_at")
+  @@index([customer], map: "idx_google_sheet_customer")
+  @@index([eta_date], map: "idx_google_sheet_eta_date")
+  @@index([lfd_date], map: "idx_google_sheet_lfd_date")
+  @@index([pickup_driver], map: "idx_google_sheet_pickup_driver")
+  @@index([terminal], map: "idx_google_sheet_terminal")
+  @@map("google_sheet")
 }
 
-/// 集装箱记录版本历史（每次保存更新前写入快照）
-model containers_history {
-  id           BigInt     @id @default(autoincrement())
-  container_id BigInt
-  version      Int
-  snapshot     Json
-  operated_by  BigInt
-  created_at   DateTime   @default(now()) @db.Timestamptz(6)
-  containers   containers @relation(fields: [container_id], references: [id], onDelete: Cascade, map: "fk_containers_history_container")
-  users        users      @relation(fields: [operated_by], references: [id], onDelete: NoAction, map: "fk_containers_history_operated_by")
+/// 货柜解析元数据（Gmail / 派送表），与 google_sheet 分离
+model container_parse_meta {
+  container_no     String       @id @db.VarChar(20)
+  email_message_id String?      @db.VarChar(128)
+  email_subject    String?      @db.VarChar(500)
+  email_from       String?      @db.VarChar(255)
+  email_date       DateTime?    @db.Timestamptz(6)
+  attachment_name  String?      @db.VarChar(255)
+  parse_status     parse_status @default(pending)
+  error_message    String?
+  is_correct       Boolean      @default(true)
+  updated_at       DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
+  google_sheet     google_sheet @relation(fields: [container_no], references: [container_no], onDelete: Cascade, map: "fk_parse_meta_google_sheet")
 
-  @@unique([container_id, version], map: "uk_containers_history_container_version")
-  @@index([container_id], map: "idx_containers_history_container_id")
-  @@index([created_at(sort: Desc)], map: "idx_containers_history_created_at")
+  @@index([parse_status], map: "idx_container_parse_meta_status")
+}
+
+/// Google Sheet 记录版本历史（每次保存更新前写入快照）
+model google_sheet_history {
+  id             BigInt       @id @default(autoincrement())
+  container_id   BigInt
+  version        Int
+  snapshot       Json
+  operated_by    BigInt
+  created_at     DateTime     @default(now()) @db.Timestamptz(6)
+  google_sheet   google_sheet @relation(fields: [container_id], references: [id], onDelete: Cascade, map: "fk_google_sheet_history_sheet")
+  users          users        @relation(fields: [operated_by], references: [id], onDelete: NoAction, map: "fk_google_sheet_history_operated_by")
+
+  @@unique([container_id, version], map: "uk_google_sheet_history_container_version")
+  @@index([container_id], map: "idx_google_sheet_history_container_id")
+  @@index([created_at(sort: Desc)], map: "idx_google_sheet_history_created_at")
+  @@map("google_sheet_history")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -106,8 +110,9 @@ model delivery_items {
   actual_carton_count Int?
   pallet_count        Int?
   warehouse_note      String?
+  is_warning          Boolean    @default(false)
   created_at          DateTime   @default(now()) @db.Timestamptz(6)
-  containers          containers @relation(fields: [container_no], references: [container_no], onDelete: Cascade, map: "fk_delivery_items_container")
+  google_sheet        google_sheet @relation(fields: [container_no], references: [container_no], onDelete: Cascade, map: "fk_delivery_items_google_sheet")
 
   @@index([container_no], map: "idx_delivery_items_container_no")
   @@index([fba_id], map: "idx_delivery_items_fba_id")
@@ -122,7 +127,7 @@ model parse_logs {
   status       log_status
   message      String?
   created_at   DateTime   @default(now()) @db.Timestamptz(6)
-  containers   containers @relation(fields: [container_no], references: [container_no], onDelete: Cascade, map: "fk_parse_logs_container")
+  google_sheet google_sheet @relation(fields: [container_no], references: [container_no], onDelete: Cascade, map: "fk_parse_logs_google_sheet")
 
   @@index([container_no], map: "idx_parse_logs_container_no")
   @@index([created_at(sort: Desc)], map: "idx_parse_logs_created_at")
@@ -145,10 +150,10 @@ model users {
   created_at                              DateTime     @default(now()) @db.Timestamptz(6)
   updated_at                              DateTime     @default(now()) @db.Timestamptz(6)
   remarks                                 String?
-  containers_containers_created_byTousers containers[] @relation("containers_created_byTousers")
-  containers_containers_deleted_byTousers containers[] @relation("containers_deleted_byTousers")
-  containers_containers_updated_byTousers containers[] @relation("containers_updated_byTousers")
-  containers_history                      containers_history[]
+  google_sheet_created_byTousers google_sheet[] @relation("google_sheet_created_byTousers")
+  google_sheet_deleted_byTousers google_sheet[] @relation("google_sheet_deleted_byTousers")
+  google_sheet_updated_byTousers google_sheet[] @relation("google_sheet_updated_byTousers")
+  google_sheet_history                    google_sheet_history[]
   users_users_created_byTousers           users?       @relation("users_created_byTousers", fields: [created_by], references: [id], onUpdate: NoAction)
   other_users_users_created_byTousers     users[]      @relation("users_created_byTousers")
   users_users_updated_byTousers           users?       @relation("users_updated_byTousers", fields: [updated_by], references: [id], onUpdate: NoAction)
@@ -170,7 +175,7 @@ model warehouse_summaries {
   item_count     Int        @default(0)
   created_at     DateTime   @default(now()) @db.Timestamptz(6)
   updated_at     DateTime   @default(now()) @db.Timestamptz(6)
-  containers     containers @relation(fields: [container_no], references: [container_no], onDelete: Cascade, map: "fk_warehouse_summaries_container")
+  google_sheet   google_sheet @relation(fields: [container_no], references: [container_no], onDelete: Cascade, map: "fk_warehouse_summaries_google_sheet")
 
   @@unique([container_no, warehouse_code], map: "uk_warehouse_summaries_container_warehouse")
   @@index([container_no], map: "idx_warehouse_summaries_container_no")
