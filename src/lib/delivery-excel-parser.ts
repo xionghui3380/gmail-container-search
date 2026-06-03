@@ -131,6 +131,68 @@ export async function parseDeliveryExcelBuffer(
   }
 
   const matrix = getWorksheetRows(worksheet, 30);
+  return parseDeliveryMatrix(matrix, defaultContainerNo);
+}
+
+/** 支持 Excel / CSV 附件 */
+export async function parseDeliveryFileBuffer(
+  buffer: Buffer,
+  filename?: string,
+  defaultContainerNo?: string,
+): Promise<DeliveryParseResult> {
+  if (filename?.toLowerCase().endsWith(".csv")) {
+    const matrix = parseCsvBufferToMatrix(buffer);
+    return parseDeliveryMatrix(matrix, defaultContainerNo);
+  }
+  return parseDeliveryExcelBuffer(buffer, defaultContainerNo);
+}
+
+function parseCsvBufferToMatrix(buffer: Buffer): string[][] {
+  let text = buffer.toString("utf-8");
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+  if (text.includes("\ufffd")) {
+    text = buffer.toString("latin1");
+  }
+
+  const lines = text.split(/\r?\n/).filter((line) => line.trim());
+  if (lines.length === 0) return [];
+
+  const firstLine = lines[0];
+  const delimiter =
+    (firstLine.match(/\t/g)?.length ?? 0) > (firstLine.match(/,/g)?.length ?? 0) ? "\t" : ",";
+
+  return lines.map((line) => parseCsvLine(line, delimiter));
+}
+
+function parseCsvLine(line: string, delimiter: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === delimiter && !inQuotes) {
+      result.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+function parseDeliveryMatrix(
+  matrix: string[][],
+  defaultContainerNo?: string,
+): DeliveryParseResult {
   const headerRowIndex = detectHeaderRow(matrix);
   const headerRow = matrix[headerRowIndex] ?? [];
   const columnMap = buildColumnMap(headerRow);
@@ -161,7 +223,7 @@ export async function parseDeliveryExcelBuffer(
     line.forEach((value, colIndex) => {
       const field = columnMap[colIndex];
       if (!field || field === "container_no") return;
-      const text = cellToString(value);
+      const text = typeof value === "string" ? value.trim() : cellToString(value);
       if (!text) return;
 
       if (
@@ -179,7 +241,7 @@ export async function parseDeliveryExcelBuffer(
 
     const containerCol = columnMap.findIndex((f) => f === "container_no");
     if (containerCol >= 0) {
-      const fromRow = cellToString(line[containerCol]).toUpperCase();
+      const fromRow = (line[containerCol] ?? "").trim().toUpperCase();
       if (fromRow) row.container_no = fromRow;
     }
     if (!row.container_no && defaultContainerNo) {

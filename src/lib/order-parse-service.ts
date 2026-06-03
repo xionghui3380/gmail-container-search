@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { generateBatchNo } from "@/lib/batch-no";
 import {
   deliveryItemToCreateInput,
-  parseDeliveryExcelBuffer,
+  parseDeliveryFileBuffer,
 } from "@/lib/delivery-excel-parser";
 import {
   downloadAttachmentBuffer,
@@ -126,7 +126,7 @@ async function parseExcelAttachment(
       accessToken,
       refreshToken,
     );
-    const parsed = await parseDeliveryExcelBuffer(buffer, ctx.containerNo);
+    const parsed = await parseDeliveryFileBuffer(buffer, attachment.filename, ctx.containerNo);
 
     if (parsed.items.length === 0) {
       await tx.attachments.update({
@@ -277,11 +277,20 @@ export async function parseOrderFromGmail(
       );
     });
 
-    const excelAttachments = detail.attachments.filter((a) => a.isExcel);
+    const parseableAttachments = detail.attachments.filter((a) => a.isParseable);
 
-    if (excelAttachments.length === 0) {
+    if (parseableAttachments.length === 0) {
+      const attachmentNames = detail.attachments.map((a) => a.filename).join(", ");
       await prisma.$transaction(async (tx) => {
-        await logStep(tx, ctx, "check_attachment", "failed", "邮件中无 Excel 附件");
+        await logStep(
+          tx,
+          ctx,
+          "check_attachment",
+          "failed",
+          attachmentNames
+            ? `邮件附件 ${attachmentNames} 均非 Excel/CSV，无法解析`
+            : "邮件中无附件",
+        );
         await tx.containers.update({
           where: { id: container.id },
           data: {
@@ -290,7 +299,7 @@ export async function parseOrderFromGmail(
             email_from: detail.from,
             email_date: detail.date ? new Date(detail.date) : null,
             parse_status: "failed",
-            error_message: "邮件中无 Excel 附件，无法解析派送明细",
+            error_message: "邮件中无 Excel/CSV 附件，无法解析派送明细",
           },
         });
       });
@@ -304,7 +313,7 @@ export async function parseOrderFromGmail(
         itemCount: 0,
         summaryCount: 0,
         warnings: [],
-        errorMessage: "邮件中无 Excel 附件",
+        errorMessage: "邮件中无 Excel/CSV 附件",
       };
     }
 
@@ -314,7 +323,7 @@ export async function parseOrderFromGmail(
     let failedCount = 0;
     const attachmentNames: string[] = [];
 
-    for (const att of excelAttachments) {
+    for (const att of parseableAttachments) {
       const result = await prisma.$transaction(async (tx) =>
         parseExcelAttachment(tx, ctx, detail.id, att, accessToken, refreshToken),
       );
@@ -330,7 +339,7 @@ export async function parseOrderFromGmail(
     }
 
     const parseStatus =
-      failedCount === excelAttachments.length
+      failedCount === parseableAttachments.length
         ? "failed"
         : failedCount > 0 || allWarnings.length > 0
           ? "partial_success"
@@ -351,7 +360,7 @@ export async function parseOrderFromGmail(
           email_subject: detail.subject,
           email_from: detail.from,
           email_date: detail.date ? new Date(detail.date) : null,
-          attachment_name: attachmentNames.join(", ") || excelAttachments[0]?.filename,
+          attachment_name: attachmentNames.join(", ") || parseableAttachments[0]?.filename,
           parse_status: parseStatus,
           error_message: errorMessage,
         },
@@ -361,7 +370,7 @@ export async function parseOrderFromGmail(
         ctx,
         "save_database",
         parseStatus === "failed" ? "failed" : "success",
-        `解析完成：${totalItems} 条明细，${excelAttachments.length} 个附件`,
+        `解析完成：${totalItems} 条明细，${parseableAttachments.length} 个附件`,
       );
     });
 
@@ -371,7 +380,7 @@ export async function parseOrderFromGmail(
       containerNo,
       parseStatus,
       email: best,
-      attachmentCount: excelAttachments.length,
+      attachmentCount: parseableAttachments.length,
       itemCount: totalItems,
       summaryCount: totalSummaries,
       warnings: allWarnings,

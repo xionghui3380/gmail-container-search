@@ -175,61 +175,57 @@ export async function searchEmailsByContainer(
     // 创建 Gmail API 客户端
     const gmail = google.gmail({ version: "v1", auth });
 
-    // 构建 Gmail 搜索查询字符串（需求文档中的格式）
-    const query = `from:${senderEmail || DEFAULT_SENDER} ${containerNo}`;
+    // 构建 Gmail 搜索查询：先按默认发件人+柜号，找不到再仅按柜号搜索
+    const sender = senderEmail || DEFAULT_SENDER;
+    const queries = [`from:${sender} ${containerNo}`, `${containerNo}`];
 
-    console.log(`[Gmail] 搜索查询: ${query}`);
-
-    // 调用 Gmail API 的 messages.list 接口
-    const response = await gmail.users.messages.list({
-        userId: "me",
-        q: query,
-        maxResults: 20,
-    });
-
-    const messages = response.data.messages;
-
-    // 如果没有搜到结果，返回空数组
-    if (!messages || messages.length === 0) {
-        return [];
-    }
-
-    // 遍历每封邮件，提取关键信息
+    const seenIds = new Set<string>();
     const results: EmailSearchResult[] = [];
-    for (const msg of messages) {
-        if (!msg.id) continue;
 
-        // 获取邮件完整数据（包含 headers 和 payload）
-        const detail = await gmail.users.messages.get({
+    for (const query of queries) {
+        console.log(`[Gmail] 搜索查询: ${query}`);
+
+        const response = await gmail.users.messages.list({
             userId: "me",
-            id: msg.id,
-            format: "metadata",
-            metadataHeaders: ["From", "Subject", "Date"],
+            q: query,
+            maxResults: 20,
         });
 
-        // 从 headers 中提取我们需要的信息
-        const headers = detail.data.payload?.headers || [];
+        const messages = response.data.messages;
+        if (!messages || messages.length === 0) continue;
 
-        /** 安全获取指定名称的 header 值（处理 name 为 undefined 的情况） */
-        const getHeader = (name: string) =>
-            headers.find((h) => (h.name || "").toLowerCase() === name.toLowerCase())?.value || "";
+        for (const msg of messages) {
+            if (!msg.id || seenIds.has(msg.id)) continue;
+            seenIds.add(msg.id);
 
-        const subject = getHeader("Subject");
-        const from = getHeader("From");
-        const dateStr = getHeader("Date");
+            const detail = await gmail.users.messages.get({
+                userId: "me",
+                id: msg.id,
+                format: "metadata",
+                metadataHeaders: ["From", "Subject", "Date"],
+            });
 
-        // 检查是否有 Excel 附件
-        const hasExcelAttachment = checkHasExcelAttachment(detail.data.payload);
+            const headers = detail.data.payload?.headers || [];
+            const getHeader = (name: string) =>
+                headers.find((h) => (h.name || "").toLowerCase() === name.toLowerCase())?.value || "";
 
-        results.push({
-            id: msg.id,
-            threadId: msg.threadId || "",
-            snippet: detail.data.snippet || "",
-            subject,
-            from,
-            date: parseGmailDate(dateStr),
-            hasExcelAttachment,
-        });
+            const subject = getHeader("Subject");
+            const from = getHeader("From");
+            const dateStr = getHeader("Date");
+            const hasParseableAttachment = checkHasParseableAttachment(detail.data.payload);
+
+            results.push({
+                id: msg.id,
+                threadId: msg.threadId || "",
+                snippet: detail.data.snippet || "",
+                subject,
+                from,
+                date: parseGmailDate(dateStr),
+                hasExcelAttachment: hasParseableAttachment,
+            });
+        }
+
+        if (results.length > 0) break;
     }
 
     return results;
@@ -283,6 +279,8 @@ export interface AttachmentInfo {
     attachmentId: string;
     size: number;
     isExcel: boolean;
+    isCsv: boolean;
+    isParseable: boolean;
 }
 
 type MessagePart = gmail_v1.Schema$MessagePart;
@@ -327,21 +325,23 @@ export async function getEmailDetail(
 
     // 如果有 Excel 附件，尝试下载并解析
     let excelData: ParsedExcelData | undefined;
+    const parseableAttachment = attachments.find((a) => a.isParseable);
     const excelAttachment = attachments.find((a) => a.isExcel);
 
-    if (excelAttachment) {
+    if (parseableAttachment) {
         try {
             excelData = await downloadAndParseExcel(
                 gmail,
                 messageId,
-                excelAttachment,
+                parseableAttachment,
                 accessToken,
                 refreshToken,
             );
         } catch (error) {
-            console.error("[Gmail] Excel 解析失败:", error);
-            // 解析失败不阻断整体流程，excelData 保持为 undefined
+            console.error("[Gmail] 附件解析失败:", error);
         }
+    } else if (excelAttachment) {
+        void excelAttachment;
     }
 
     return {
@@ -351,7 +351,7 @@ export async function getEmailDetail(
         subject: getHeader("Subject"),
         from: getHeader("From"),
         date: parseGmailDate(getHeader("Date")),
-        hasExcelAttachment: attachments.some((item) => item.isExcel),
+        hasExcelAttachment: attachments.some((item) => item.isParseable),
         bodyText: textBody,
         bodyHtml: htmlBody,
         attachments,
@@ -372,31 +372,41 @@ export async function getEmailDetail(
  *   ├── parts[1] (text/html 正文)
  *   └── parts[2] (attachment: .xlsx / .xls)
  */
-function checkHasExcelAttachment(payload?: MessagePart | null): boolean {
+function checkHasParseableAttachment(payload?: MessagePart | null): boolean {
     if (!payload?.parts) return false;
-    return recursivelyCheckParts(payload.parts);
+    return recursivelyCheckParseableParts(payload.parts);
 }
 
-function recursivelyCheckParts(parts: MessagePart[]): boolean {
+function recursivelyCheckParseableParts(parts: MessagePart[]): boolean {
     for (const part of parts) {
-        if (part.mimeType && isExcelMimeType(part.mimeType)) {
+        if (part.filename && isParseableFile(part.mimeType || "", part.filename)) {
             return true;
         }
-        // 如果是 multipart（嵌套容器），递归检查子节点
         if (part.parts && Array.isArray(part.parts)) {
-            if (recursivelyCheckParts(part.parts)) return true;
+            if (recursivelyCheckParseableParts(part.parts)) return true;
         }
     }
     return false;
 }
 
-/** 判断 MIME 类型是否为 Excel 文件 */
+
+function isCsvFile(mimeType: string, filename: string): boolean {
+    const lower = filename.toLowerCase();
+    if (lower.endsWith(".csv")) return true;
+    const csvMimes = ["text/csv", "application/csv", "text/comma-separated-values"];
+    return csvMimes.includes(mimeType.toLowerCase());
+}
+
 function isExcelMimeType(mimeType: string): boolean {
     const excelMimes = [
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  // .xlsx
-        "application/vnd.ms-excel",                                          // .xls
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
     ];
     return excelMimes.includes(mimeType);
+}
+
+function isParseableFile(mimeType: string, filename: string): boolean {
+    return isExcelMimeType(mimeType) || isCsvFile(mimeType, filename);
 }
 
 /**
@@ -448,12 +458,17 @@ function extractAttachments(payload: MessagePart): AttachmentInfo[] {
         for (const part of parts) {
             // 有 attachmentId 且有 filename → 这是附件
             if (part.body?.attachmentId && part.filename) {
+                const mimeType = part.mimeType || "";
+                const isExcel = isExcelMimeType(mimeType);
+                const isCsv = isCsvFile(mimeType, part.filename);
                 attachments.push({
                     filename: part.filename,
-                    mimeType: part.mimeType || "",
+                    mimeType,
                     attachmentId: part.body.attachmentId,
                     size: part.body.size || 0,
-                    isExcel: isExcelMimeType(part.mimeType || ""),
+                    isExcel,
+                    isCsv,
+                    isParseable: isExcel || isCsv || isParseableFile(mimeType, part.filename),
                 });
             }
             if (part.parts) {
@@ -511,11 +526,11 @@ export async function pickBestEmailForParse(
 
     for (const email of pool) {
       let score = email.hasExcelAttachment ? 1000 : 0;
-      score += (email.snippet?.length ?? 0);
+      score += email.snippet?.length ?? 0;
       if (email.date) score += 1;
       try {
         const detail = await getEmailDetail(email.id, accessToken, refreshToken);
-        score += detail.attachments.filter((a) => a.isExcel).length * 500;
+        score += detail.attachments.filter((a) => a.isParseable).length * 500;
         score += detail.attachments.reduce((sum, a) => sum + (a.size ?? 0), 0) / 1000;
       } catch {
         // ignore detail fetch errors for ranking
