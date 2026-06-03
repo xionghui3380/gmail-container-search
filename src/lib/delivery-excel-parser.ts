@@ -281,8 +281,6 @@ export function deliveryItemToCreateInput(
     batch_no?: string;
   },
 ): Prisma.delivery_itemsCreateManyInput {
-  const isWarning =
-    !item.warehouse_code || item.carton_count === null || item.warnings.length > 0;
   return {
     container_no: item.container_no,
     attachment_id: meta?.attachment_id,
@@ -300,6 +298,5 @@ export function deliveryItemToCreateInput(
     actual_carton_count: item.actual_carton_count,
     pallet_count: item.pallet_count,
     warehouse_note: item.warehouse_note,
-    is_warning: isWarning,
   };
 }
