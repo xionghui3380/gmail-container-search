@@ -270,6 +270,23 @@ enum user_role {
   viewer
 }
 
+/// 订单表（订单管理）
+model orders {
+  id             Int       @id @default(autoincrement())
+  container_no   String    @db.VarChar(20)
+  operation_type String?   @db.VarChar(50)
+  customer       String?   @db.VarChar(200)
+  order_date     DateTime? @db.Date
+  eta            DateTime? @db.Date
+  pickup_date    DateTime? @db.Date
+  created_at     DateTime  @default(now()) @db.Timestamp(6)
+  updated_at     DateTime  @default(now()) @updatedAt @db.Timestamp(6)
+
+  @@index([container_no], map: "idx_orders_container_no")
+  @@index([created_at(sort: Desc)], map: "idx_orders_created_at")
+  @@map("orders")
+}
+
 model customers {
   id          BigInt   @id @default(autoincrement())
   name        String   @db.VarChar(100)

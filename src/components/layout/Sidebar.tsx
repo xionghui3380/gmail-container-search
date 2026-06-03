@@ -2,13 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Container, LayoutDashboard } from "lucide-react";
+import { Container, ClipboardList, LayoutDashboard } from "lucide-react";
 
 const navItems = [
   {
     href: "/google-sheet",
     label: "google_sheet",
     icon: Container,
+  },
+  {
+    href: "/orders",
+    label: "订单管理",
+    icon: ClipboardList,
   },
 ];
 
