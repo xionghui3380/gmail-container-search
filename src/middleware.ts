@@ -12,7 +12,7 @@
  * 注意：middleware 运行在 Edge Runtime，不能使用 Node.js API（如 Prisma）
  */
 import { NextRequest, NextResponse } from "next/server";
-import { ACCESS_COOKIE } from "@/lib/auth";
+import { ACCESS_COOKIE } from "@/lib/auth-cookies";
 
 /** 不需要认证的公开路径 */
 const publicPaths = [
@@ -53,9 +53,7 @@ export function middleware(request: NextRequest) {
 
   if (
     pathname === "/cargo" ||
-    pathname.startsWith("/cargo/") ||
-    pathname === "/customers" ||
-    pathname.startsWith("/customers/")
+    pathname.startsWith("/cargo/")
   ) {
     return NextResponse.redirect(new URL("/google-sheet", request.url));
   }

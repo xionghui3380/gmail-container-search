@@ -13,10 +13,9 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import type { user_role } from "@prisma/client";
+import { ACCESS_COOKIE, REFRESH_COOKIE } from "@/lib/auth-cookies";
 
-/** Cookie 名称常量 */
-export const ACCESS_COOKIE = "gng_access_token";
-export const REFRESH_COOKIE = "gng_refresh_token";
+export { ACCESS_COOKIE, REFRESH_COOKIE };
 
 /** 认证用户信息类型（与 JWT payload 对应） */
 export type AuthUser = {

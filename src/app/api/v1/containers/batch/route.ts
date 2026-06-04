@@ -1,8 +1,12 @@
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { canDelete } from "@/lib/auth";
 import { error, success } from "@/lib/api-response";
 import { requireUser } from "@/lib/require-user";
-import { cargoOrderBatchDeleteSchema } from "@/lib/cargo-order-validators";
+
+const batchDeleteSchema = z.object({
+  ids: z.array(z.string()).min(1, "请选择至少一条记录"),
+});
 
 export async function DELETE(request: Request) {
   const user = await requireUser(request as import("next/server").NextRequest);
@@ -11,7 +15,7 @@ export async function DELETE(request: Request) {
 
   try {
     const body = await request.json();
-    const parsed = cargoOrderBatchDeleteSchema.safeParse(body);
+    const parsed = batchDeleteSchema.safeParse(body);
     if (!parsed.success) {
       return error(
         "Validation failed",

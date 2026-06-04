@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -281,17 +281,29 @@ function renderReadOnlyCell(row: ContainerRow, key: ColumnKey) {
   }
 }
 
+function isRowFormUnchanged(row: ContainerRow, draft: RowForm) {
+  const baseline = rowToForm(row);
+  return (Object.keys(baseline) as (keyof RowForm)[]).every(
+    (key) => baseline[key] === draft[key],
+  );
+}
+
 function renderEditableInput(
   key: ColumnKey,
   form: RowForm,
   onChange: <K extends keyof RowForm>(field: K, value: RowForm[K]) => void,
+  options?: { onBlur?: () => void; disabled?: boolean },
 ) {
+  const onBlur = options?.onBlur;
+  const disabled = options?.disabled ?? false;
   switch (key) {
     case "container_no":
       return (
         <input
           value={form.container_no}
           onChange={(e) => onChange("container_no", e.target.value.toUpperCase())}
+          onBlur={onBlur}
+          disabled={disabled}
           placeholder="柜号"
           className={inputClass}
         />
@@ -301,6 +313,8 @@ function renderEditableInput(
         <select
           value={form.container_type}
           onChange={(e) => onChange("container_type", e.target.value)}
+          onBlur={onBlur}
+          disabled={disabled}
           className={inputClass}
         >
           <option value="40">40</option>
@@ -315,6 +329,8 @@ function renderEditableInput(
           min="0"
           value={form.weight}
           onChange={(e) => onChange("weight", e.target.value)}
+          onBlur={onBlur}
+          disabled={disabled}
           placeholder="重量"
           className={inputClass}
         />
@@ -324,6 +340,8 @@ function renderEditableInput(
         <select
           value={form.operation_type}
           onChange={(e) => onChange("operation_type", e.target.value as "fcl" | "lcl")}
+          onBlur={onBlur}
+          disabled={disabled}
           className={inputClass}
         >
           <option value="fcl">整柜</option>
@@ -337,6 +355,8 @@ function renderEditableInput(
             type="checkbox"
             checked={form.backend_delivery}
             onChange={(e) => onChange("backend_delivery", e.target.checked)}
+            onBlur={onBlur}
+            disabled={disabled}
             className="rounded border-slate-300"
           />
           是
@@ -348,6 +368,8 @@ function renderEditableInput(
           type="datetime-local"
           value={form.appointment_time}
           onChange={(e) => onChange("appointment_time", e.target.value)}
+          onBlur={onBlur}
+          disabled={disabled}
           className={inputClass}
         />
       );
@@ -359,6 +381,8 @@ function renderEditableInput(
             type="date"
             value={form[field] as string}
             onChange={(e) => onChange(field, e.target.value as RowForm[typeof field])}
+            onBlur={onBlur}
+            disabled={disabled}
             className={inputClass}
           />
         );
@@ -383,6 +407,8 @@ function renderEditableInput(
             <input
               value={form[field] as string}
               onChange={(e) => onChange(field, e.target.value as RowForm[typeof field])}
+              onBlur={onBlur}
+              disabled={disabled}
               className={inputClass}
             />
           );
@@ -428,16 +454,13 @@ type SortableTableRowProps = {
   selected: Set<string>;
   visibleColumns: DataColumn[];
   getWidth: (key: ColumnKey) => number;
-  isEditing: boolean;
-  editForm: RowForm;
+  rowDraft: RowForm;
   saving: boolean;
   onToggleSelect: (id: string) => void;
   onViewHistory: (id: string) => void;
   onDelete: (id: string) => void;
-  onStartEdit: () => void;
-  onEditChange: <K extends keyof RowForm>(field: K, value: RowForm[K]) => void;
-  onSaveEdit: () => void;
-  onCancelEdit: () => void;
+  onDraftChange: <K extends keyof RowForm>(field: K, value: RowForm[K]) => void;
+  onCellBlur: () => void;
 };
 
 function SortableTableRow({
@@ -447,16 +470,13 @@ function SortableTableRow({
   selected,
   visibleColumns,
   getWidth,
-  isEditing,
-  editForm,
+  rowDraft,
   saving,
   onToggleSelect,
   onViewHistory,
   onDelete,
-  onStartEdit,
-  onEditChange,
-  onSaveEdit,
-  onCancelEdit,
+  onDraftChange,
+  onCellBlur,
 }: SortableTableRowProps) {
   const {
     attributes,
@@ -467,7 +487,7 @@ function SortableTableRow({
     isDragging,
   } = useSortable({
     id: row.id,
-    disabled: !canDragRows || isEditing,
+    disabled: !canDragRows || saving,
   });
 
   const style = {
@@ -479,26 +499,15 @@ function SortableTableRow({
     <tr
       ref={setNodeRef}
       style={style}
-      onDoubleClick={() => {
-        if (canWrite && !isEditing) onStartEdit();
-      }}
       className={`group border-b border-slate-100 ${
-        isEditing
-          ? "bg-amber-50/70"
-          : isDragging
-            ? "relative z-10 bg-white opacity-90 shadow-md"
-            : "hover:bg-slate-50/80"
+        isDragging
+          ? "relative z-10 bg-white opacity-90 shadow-md"
+          : "hover:bg-slate-50/80"
       }`}
-      title={
-        canWrite && !isEditing
-          ? "双击编辑"
-          : canDragRows
-            ? "拖拽左侧手柄调整顺序"
-            : undefined
-      }
+      title={canDragRows ? "拖拽左侧手柄调整顺序" : undefined}
     >
       {canWrite && (
-        <td className="px-2 py-3" onDoubleClick={(e) => e.stopPropagation()}>
+        <td className="px-2 py-3">
           <input
             type="checkbox"
             checked={selected.has(row.id)}
@@ -510,7 +519,6 @@ function SortableTableRow({
       {canDragRows && (
         <td
           className="cursor-grab px-1 py-3 text-center active:cursor-grabbing"
-          onDoubleClick={(e) => e.stopPropagation()}
           {...attributes}
           {...listeners}
         >
@@ -520,48 +528,51 @@ function SortableTableRow({
 
       {visibleColumns.map((column) => (
         <td
-          key={`${isEditing ? "edit" : "read"}-${row.id}-${column.key}`}
+          key={`${row.id}-${column.key}`}
           style={{ minWidth: getWidth(column.key), width: getWidth(column.key) }}
           className={`${cellNowrap} text-slate-700`}
-          onDoubleClick={(e) => {
-            if (column.key === "container_no") e.stopPropagation();
-          }}
         >
-          {isEditing
-            ? renderEditableInput(column.key, editForm, onEditChange)
-            : renderReadOnlyCell(row, column.key)}
+          {canWrite ? (
+            renderEditableInput(column.key, rowDraft, onDraftChange, {
+              onBlur: onCellBlur,
+              disabled: saving,
+            })
+          ) : (
+            renderReadOnlyCell(row, column.key)
+          )}
         </td>
       ))}
       {canWrite && (
         <td
           className={`${stickyActionTdBase} ${
-            isEditing
-              ? "bg-amber-50"
-              : isDragging
-                ? "bg-white"
-                : "bg-white group-hover:bg-slate-50/80"
+            isDragging ? "bg-white" : "bg-white group-hover:bg-slate-50/80"
           }`}
-          onDoubleClick={(e) => e.stopPropagation()}
         >
-          {isEditing ? (
-            <ActionButtons saving={saving} onSave={onSaveEdit} onCancel={onCancelEdit} />
-          ) : (
-            <div className="flex items-center gap-2 whitespace-nowrap">
-              <button
-                onClick={() => onViewHistory(row.id)}
-                className="text-blue-500 hover:text-blue-700 hover:underline"
-              >
-                历史
-              </button>
-              <span className="text-slate-300">|</span>
-              <button
-                onClick={() => onDelete(row.id)}
-                className="text-red-500 hover:text-red-700 hover:underline"
-              >
-                删除
-              </button>
-            </div>
-          )}
+          <div className="flex items-center gap-2 whitespace-nowrap">
+            <Link
+              href={`/google-sheet/${encodeURIComponent(row.container_no)}`}
+              className="text-blue-500 hover:text-blue-700 hover:underline"
+            >
+              详情
+            </Link>
+            <span className="text-slate-300">|</span>
+            <button
+              type="button"
+              onClick={() => onViewHistory(row.id)}
+              className="text-blue-500 hover:text-blue-700 hover:underline"
+            >
+              历史
+            </button>
+            <span className="text-slate-300">|</span>
+            <button
+              type="button"
+              onClick={() => onDelete(row.id)}
+              disabled={saving}
+              className="text-red-500 hover:text-red-700 hover:underline disabled:opacity-50"
+            >
+              {saving ? "保存中..." : "删除"}
+            </button>
+          </div>
         </td>
       )}
     </tr>
@@ -582,13 +593,21 @@ export default function ContainersPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isAddingRow, setIsAddingRow] = useState(false);
   const [newRow, setNewRow] = useState<RowForm>(emptyRowForm);
-  const [editingRowId, setEditingRowId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<RowForm>(emptyRowForm);
+  const [rowDrafts, setRowDrafts] = useState<Record<string, RowForm>>({});
+  const [savingRowId, setSavingRowId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [sortState, setSortState] = useState<SortState>({ column: null, order: "asc" });
   const [reordering, setReordering] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [historyContainerId, setHistoryContainerId] = useState<string | null>(null);
+
+  const saveTimerRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const pendingSaveRef = useRef<Set<string>>(new Set());
+  const rowsRef = useRef(rows);
+  const rowDraftsRef = useRef(rowDrafts);
+
+  rowsRef.current = rows;
+  rowDraftsRef.current = rowDrafts;
 
   const rowDragSensors = useSensors(
     useSensor(PointerSensor, {
@@ -612,8 +631,8 @@ export default function ContainersPage() {
   );
 
   const canDragRows = useMemo(
-    () => canWrite && !sortState.column && !isAddingRow && !editingRowId && !loading,
-    [canWrite, sortState.column, isAddingRow, editingRowId, loading],
+    () => canWrite && !sortState.column && !isAddingRow && !loading,
+    [canWrite, sortState.column, isAddingRow, loading],
   );
 
   const loadUser = useCallback(async () => {
@@ -661,6 +680,17 @@ export default function ContainersPage() {
   useEffect(() => {
     loadRows();
   }, [loadRows]);
+
+  useEffect(() => {
+    setRowDrafts(Object.fromEntries(rows.map((row) => [row.id, rowToForm(row)])));
+  }, [rows]);
+
+  useEffect(() => {
+    const timers = saveTimerRef.current;
+    return () => {
+      Object.values(timers).forEach(clearTimeout);
+    };
+  }, []);
 
   function handleSortClick(key: ColumnKey) {
     setPage(1);
@@ -711,7 +741,6 @@ export default function ContainersPage() {
   }
 
   function handleStartAdd() {
-    if (editingRowId) return;
     setNewRow(emptyRowForm());
     setIsAddingRow(true);
   }
@@ -721,43 +750,82 @@ export default function ContainersPage() {
     setNewRow(emptyRowForm());
   }
 
-  function handleStartEdit(row: ContainerRow) {
-    if (isAddingRow || editingRowId) return;
-    setEditingRowId(row.id);
-    setEditForm(rowToForm(row));
+  function updateRowDraft<K extends keyof RowForm>(
+    rowId: string,
+    field: K,
+    value: RowForm[K],
+  ) {
+    setRowDrafts((prev) => ({
+      ...prev,
+      [rowId]: { ...(prev[rowId] ?? emptyRowForm()), [field]: value },
+    }));
   }
 
-  function handleCancelEdit() {
-    setEditingRowId(null);
-    setEditForm(emptyRowForm());
+  function handleCellBlur(rowId: string) {
+    if (!canWrite) return;
+
+    clearTimeout(saveTimerRef.current[rowId]);
+    saveTimerRef.current[rowId] = setTimeout(() => {
+      void persistRowDraft(rowId);
+    }, 400);
   }
 
-  async function handleSaveEdit() {
-    if (!editingRowId) return;
-    const message = validateRowForm(editForm);
-    if (message) {
-      toast.error(message);
+  async function persistRowDraft(rowId: string) {
+    if (savingRowId === rowId) {
+      pendingSaveRef.current.add(rowId);
       return;
     }
 
-    setSaving(true);
+    const row = rowsRef.current.find((item) => item.id === rowId);
+    const draft = rowDraftsRef.current[rowId];
+    if (!row || !draft || isRowFormUnchanged(row, draft)) return;
+
+    const message = validateRowForm(draft);
+    if (message) {
+      toast.error(message);
+      setRowDrafts((prev) => ({ ...prev, [rowId]: rowToForm(row) }));
+      return;
+    }
+
+    setSavingRowId(rowId);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
+
     try {
-      const res = await fetch(`/api/v1/google-sheet/${editingRowId}`, {
+      const res = await fetch(`/api/v1/google-sheet/${rowId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildPayload(editForm)),
+        body: JSON.stringify(buildPayload(draft)),
+        signal: controller.signal,
       });
       const json = await res.json();
       if (!res.ok) {
         toast.error(json.message ?? "保存失败");
         if (json.errors?.[0]?.message) toast.error(json.errors[0].message);
+        setRowDrafts((prev) => ({ ...prev, [rowId]: rowToForm(row) }));
         return;
       }
-      toast.success("保存成功");
-      handleCancelEdit();
-      loadRows();
+      setRows((prev) =>
+        prev.map((item) => (item.id === rowId ? { ...item, ...json.data } : item)),
+      );
+      setRowDrafts((prev) => ({
+        ...prev,
+        [rowId]: rowToForm({ ...row, ...json.data } as ContainerRow),
+      }));
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        toast.error("保存超时，请检查网络或数据库连接后重试");
+      } else {
+        toast.error("保存失败，请稍后重试");
+      }
+      setRowDrafts((prev) => ({ ...prev, [rowId]: rowToForm(row) }));
     } finally {
-      setSaving(false);
+      clearTimeout(timeoutId);
+      setSavingRowId(null);
+      if (pendingSaveRef.current.has(rowId)) {
+        pendingSaveRef.current.delete(rowId);
+        void persistRowDraft(rowId);
+      }
     }
   }
 
@@ -910,7 +978,7 @@ export default function ContainersPage() {
             <>
               <button
                 onClick={handleStartAdd}
-                disabled={isAddingRow || Boolean(editingRowId)}
+                disabled={isAddingRow}
                 className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Plus size={15} />
@@ -1013,18 +1081,13 @@ export default function ContainersPage() {
                         selected={selected}
                         visibleColumns={visibleColumns}
                         getWidth={getWidth}
-                        isEditing={editingRowId === row.id}
-                        editForm={editForm}
-                        saving={saving}
+                        rowDraft={rowDrafts[row.id] ?? rowToForm(row)}
+                        saving={savingRowId === row.id}
                         onToggleSelect={toggleSelect}
                         onViewHistory={handleViewHistory}
                         onDelete={handleDelete}
-                        onStartEdit={() => handleStartEdit(row)}
-                        onEditChange={(field, value) =>
-                          setEditForm((prev) => ({ ...prev, [field]: value }))
-                        }
-                        onSaveEdit={handleSaveEdit}
-                        onCancelEdit={handleCancelEdit}
+                        onDraftChange={(field, value) => updateRowDraft(row.id, field, value)}
+                        onCellBlur={() => void handleCellBlur(row.id)}
                       />
                     ))
                   )}

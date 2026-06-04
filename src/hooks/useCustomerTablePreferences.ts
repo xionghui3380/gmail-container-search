@@ -2,42 +2,39 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  CARGO_ORDER_COLUMN_ORDER_STORAGE_KEY,
-  CARGO_ORDER_COLUMN_WIDTH_STORAGE_KEY,
-  CARGO_ORDER_COLUMNS,
-  getDefaultCargoOrderColumnOrder,
-  getDefaultCargoOrderColumnWidths,
-  type CargoOrderColumnKey,
-} from "@/lib/cargo-order-columns";
+  CUSTOMER_COLUMN_ORDER_STORAGE_KEY,
+  CUSTOMER_COLUMN_WIDTH_STORAGE_KEY,
+  CUSTOMER_COLUMNS,
+  getDefaultCustomerColumnOrder,
+  getDefaultCustomerColumnWidths,
+  type CustomerColumnKey,
+} from "@/lib/customer-columns";
 
 const MIN_WIDTH = 80;
 const MAX_WIDTH = 500;
 
-export function useCargoOrderTablePreferences() {
-  const [columnOrder, setColumnOrder] = useState<CargoOrderColumnKey[]>(
-    getDefaultCargoOrderColumnOrder,
-  );
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(
-    getDefaultCargoOrderColumnWidths,
-  );
-  const [draggingColumn, setDraggingColumn] = useState<CargoOrderColumnKey | null>(null);
+export function useCustomerTablePreferences() {
+  const [columnOrder, setColumnOrder] = useState<CustomerColumnKey[]>(getDefaultCustomerColumnOrder);
+  const [columnWidths, setColumnWidths] =
+    useState<Record<string, number>>(getDefaultCustomerColumnWidths);
+  const [draggingColumn, setDraggingColumn] = useState<CustomerColumnKey | null>(null);
   const [resizing, setResizing] = useState<{
-    key: CargoOrderColumnKey;
+    key: CustomerColumnKey;
     startX: number;
     startWidth: number;
   } | null>(null);
 
   useEffect(() => {
     try {
-      const savedOrder = localStorage.getItem(CARGO_ORDER_COLUMN_ORDER_STORAGE_KEY);
+      const savedOrder = localStorage.getItem(CUSTOMER_COLUMN_ORDER_STORAGE_KEY);
       if (savedOrder) {
-        const parsed = JSON.parse(savedOrder) as CargoOrderColumnKey[];
-        const valid = parsed.filter((key) => CARGO_ORDER_COLUMNS.some((col) => col.key === key));
-        if (valid.length === CARGO_ORDER_COLUMNS.length) setColumnOrder(valid);
+        const parsed = JSON.parse(savedOrder) as CustomerColumnKey[];
+        const valid = parsed.filter((key) => CUSTOMER_COLUMNS.some((col) => col.key === key));
+        if (valid.length === CUSTOMER_COLUMNS.length) setColumnOrder(valid);
       }
-      const savedWidths = localStorage.getItem(CARGO_ORDER_COLUMN_WIDTH_STORAGE_KEY);
+      const savedWidths = localStorage.getItem(CUSTOMER_COLUMN_WIDTH_STORAGE_KEY);
       if (savedWidths) {
-        setColumnWidths({ ...getDefaultCargoOrderColumnWidths(), ...JSON.parse(savedWidths) });
+        setColumnWidths({ ...getDefaultCustomerColumnWidths(), ...JSON.parse(savedWidths) });
       }
     } catch {
       // ignore
@@ -45,16 +42,16 @@ export function useCargoOrderTablePreferences() {
   }, []);
 
   const visibleColumns = columnOrder
-    .map((key) => CARGO_ORDER_COLUMNS.find((col) => col.key === key))
-    .filter(Boolean) as typeof CARGO_ORDER_COLUMNS;
+    .map((key) => CUSTOMER_COLUMNS.find((col) => col.key === key))
+    .filter(Boolean) as typeof CUSTOMER_COLUMNS;
 
-  const persistOrder = useCallback((order: CargoOrderColumnKey[]) => {
+  const persistOrder = useCallback((order: CustomerColumnKey[]) => {
     setColumnOrder(order);
-    localStorage.setItem(CARGO_ORDER_COLUMN_ORDER_STORAGE_KEY, JSON.stringify(order));
+    localStorage.setItem(CUSTOMER_COLUMN_ORDER_STORAGE_KEY, JSON.stringify(order));
   }, []);
 
   const handleColumnDrop = useCallback(
-    (targetKey: CargoOrderColumnKey) => {
+    (targetKey: CustomerColumnKey) => {
       if (!draggingColumn || draggingColumn === targetKey) return;
       const next = [...columnOrder];
       const from = next.indexOf(draggingColumn);
@@ -69,7 +66,7 @@ export function useCargoOrderTablePreferences() {
   );
 
   const startResize = useCallback(
-    (key: CargoOrderColumnKey, clientX: number) => {
+    (key: CustomerColumnKey, clientX: number) => {
       setResizing({
         key,
         startX: clientX,
@@ -93,7 +90,7 @@ export function useCargoOrderTablePreferences() {
 
     function onUp() {
       setColumnWidths((prev) => {
-        localStorage.setItem(CARGO_ORDER_COLUMN_WIDTH_STORAGE_KEY, JSON.stringify(prev));
+        localStorage.setItem(CUSTOMER_COLUMN_WIDTH_STORAGE_KEY, JSON.stringify(prev));
         return prev;
       });
       setResizing(null);
@@ -108,7 +105,7 @@ export function useCargoOrderTablePreferences() {
   }, [resizing]);
 
   const getWidth = useCallback(
-    (key: CargoOrderColumnKey) => columnWidths[key] ?? 120,
+    (key: CustomerColumnKey) => columnWidths[key] ?? 120,
     [columnWidths],
   );
 
