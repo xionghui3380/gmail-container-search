@@ -9,7 +9,6 @@ import {
     LayoutDashboard,
     Package,
     Warehouse,
-    Users
 } from "lucide-react";
 
 const navItems = [

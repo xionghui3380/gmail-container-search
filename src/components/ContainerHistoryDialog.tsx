@@ -43,14 +43,7 @@ export default function ContainerHistoryDialog({
   const [loading, setLoading] = useState(false);
   const [expandedIndex, setExpandedIndex] = useState<number>(-1);
 
-  useEffect(() => {
-    if (open && containerId) {
-      loadHistory();
-      setExpandedIndex(-1);
-    }
-  }, [open, containerId]);
-
-  async function loadHistory() {
+  const loadHistory = useCallback(async () => {
     if (!containerId) return;
     setLoading(true);
     try {
@@ -64,7 +57,14 @@ export default function ContainerHistoryDialog({
     } finally {
       setLoading(false);
     }
-  }
+  }, [containerId]);
+
+  useEffect(() => {
+    if (open && containerId) {
+      void loadHistory();
+      setExpandedIndex(-1);
+    }
+  }, [open, containerId, loadHistory]);
 
   const handleToggleExpand = useCallback((index: number) => {
     setExpandedIndex((prev) => (prev === index ? -1 : index));

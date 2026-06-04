@@ -324,8 +324,7 @@ function renderEditableInput(
     case "weight":
       return (
         <input
-          type="number"
-          step="0.01"
+          type="text"
           min="0"
           value={form.weight}
           onChange={(e) => onChange("weight", e.target.value)}
