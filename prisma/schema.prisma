@@ -160,6 +160,7 @@ model delivery_items {
   actual_carton_count Int?
   pallet_count        Int?
   warehouse_note      String?    @db.Text
+  warning             String?    @db.Text
   created_at          DateTime   @default(now()) @db.Timestamptz(6)
   attachments         attachments? @relation(fields: [attachment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 

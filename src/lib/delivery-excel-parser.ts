@@ -75,7 +75,11 @@ const FIELD_ALIASES: Record<string, DeliveryFieldKey> = {
   仓库备注: "warehouse_note",
 };
 
-const HEADER_KEYWORDS = ["fba", "reference", "warehouse", "仓库", "箱数", "carton", "柜号"];
+const HEADER_KEYWORDS = [
+  "fba", "reference", "warehouse", "仓库", "箱数", "carton", "柜号",
+  "重量", "weight", "cbm", "体积", "派送", "delivery", "客户", "唛头",
+  "so", "po", "备注", "note", "打板", "pallet", "实际", "actual",
+];
 
 function isSummaryRow(values: string[]) {
   const joined = values.join(" ").toLowerCase();
@@ -298,5 +302,6 @@ export function deliveryItemToCreateInput(
     actual_carton_count: item.actual_carton_count,
     pallet_count: item.pallet_count,
     warehouse_note: item.warehouse_note,
+    warning: item.warnings.length > 0 ? item.warnings.join("; ") : null,
   };
 }

@@ -16,6 +16,7 @@ type DeliveryItem = {
   carton_count?: number | null;
   warehouse_code?: string | null;
   delivery_method?: string | null;
+  warning?: string | null;
 };
 
 type AttachmentInfo = {
@@ -210,12 +211,17 @@ export default function ParseResultDialog({ open, onClose, containerId }: ParseR
                               </tr>
                             ) : (
                               rows.map((row) => (
-                                <tr key={row.id} className="border-t border-slate-100">
+                                <tr key={row.id} className={`border-t border-slate-100 ${row.warning ? "bg-amber-50" : ""}`}>
                                   {ITEM_COLUMNS.map((col) => (
                                     <td key={col.key} className="whitespace-nowrap px-3 py-2">
-                                      {row[col.key] ?? "-"}
+                                      {row[col.key as keyof DeliveryItem] ?? "-"}
                                     </td>
                                   ))}
+                                  {row.warning && (
+                                    <td className="whitespace-nowrap px-3 py-2 text-xs text-amber-700">
+                                      {row.warning}
+                                    </td>
+                                  )}
                                 </tr>
                               ))
                             )}

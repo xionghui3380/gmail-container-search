@@ -8,12 +8,26 @@ import {
   resolveGmailTokens,
   setGmailTokenCookies,
 } from "@/lib/gmail-tokens";
+import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { serialize } from "@/lib/serialize";
 
 type Params = { params: { id: string } };
 
 export const maxDuration = 120;
+
+async function safeLog(data: {
+  container_no: string;
+  step: string;
+  status: "success" | "failed" | "warning";
+  message: string;
+}) {
+  try {
+    await prisma.parse_logs.create({ data });
+  } catch (e) {
+    console.error("[parse_logs write failed]", e);
+  }
+}
 
 export async function POST(request: NextRequest, { params }: Params) {
   const user = await requireUser(request);
@@ -23,14 +37,35 @@ export async function POST(request: NextRequest, { params }: Params) {
   const orderId = Number(params.id);
   if (Number.isNaN(orderId)) return error("无效 ID", 400);
 
+  const order = await prisma.orders.findUnique({ where: { id: orderId } });
+  if (!order) return error("订单不存在", 404);
+
+  const containerNo = order.container_no.trim().toUpperCase();
+
   let tokens;
   try {
     tokens = await resolveGmailTokens(request);
   } catch {
-    return error("Gmail 授权已过期", 401, { meta: { needReconnect: true } });
+    await safeLog({
+      container_no: containerNo,
+      step: "gmail_auth",
+      status: "failed",
+      message: "信息同步失败：Gmail 授权已过期",
+    });
+    return error("检索失败，具体信息请在【解析结果】中查看", 401, {
+      meta: { needReconnect: true },
+    });
   }
   if (!tokens) {
-    return error("尚未连接 Gmail，请先授权", 401, { meta: { needReconnect: true } });
+    await safeLog({
+      container_no: containerNo,
+      step: "gmail_auth",
+      status: "failed",
+      message: "信息同步失败：Gmail 未连接",
+    });
+    return error("检索失败，具体信息请在【解析结果】中查看", 401, {
+      meta: { needReconnect: true },
+    });
   }
 
   try {
@@ -46,10 +81,18 @@ export async function POST(request: NextRequest, { params }: Params) {
     return response;
   } catch (err: unknown) {
     const msg = getErrorMessage(err);
-    if (isGmailAuthError(msg)) {
-      return error("Gmail 授权已过期", 401, { meta: { needReconnect: true } });
-    }
+    await safeLog({
+      container_no: containerNo,
+      step: "parse_order",
+      status: "failed",
+      message: `信息同步失败：${msg}`,
+    });
     console.error("[orders search]", err);
-    return error(msg, 500);
+    if (isGmailAuthError(msg)) {
+      return error("检索失败，具体信息请在【解析结果】中查看", 401, {
+        meta: { needReconnect: true },
+      });
+    }
+    return error("检索失败，具体信息请在【解析结果】中查看", 500);
   }
 }

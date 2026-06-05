@@ -9,6 +9,7 @@ export type DeliveryItemExportRow = {
   carton_count?: number | null;
   warehouse_code?: string | null;
   delivery_method?: string | null;
+  warning?: string | null;
 };
 
 /** 页面展示与导出共用的明细列（不含客户代码、备注、实际箱数等） */
@@ -20,6 +21,7 @@ export const DELIVERY_ITEM_COLUMNS = [
   { key: "cbm", label: "CBM" },
   { key: "weight", label: "重量" },
   { key: "delivery_method", label: "派送方式" },
+  { key: "warning", label: "警告" },
 ] as const;
 
 /** 导出时在明细列前加柜号 */

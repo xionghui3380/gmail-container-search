@@ -1,5 +1,4 @@
 export type ParseResultColumnKey =
-  | "batch_no"
   | "created_at"
   | "container_no"
   | "operation_type"
@@ -23,8 +22,6 @@ export type ParseResultDataColumn = {
 };
 
 export const PARSE_RESULT_COLUMNS: ParseResultDataColumn[] = [
-  { key: "batch_no", label: "批次号", defaultWidth: 180, sortable: true },
-  { key: "created_at", label: "创建时间", defaultWidth: 180, sortable: true },
   { key: "container_no", label: "柜号", defaultWidth: 140, sortable: true },
   { key: "operation_type", label: "操作方式", defaultWidth: 90, sortable: true },
   { key: "customer", label: "客户", defaultWidth: 120, sortable: true },
@@ -33,6 +30,7 @@ export const PARSE_RESULT_COLUMNS: ParseResultDataColumn[] = [
   { key: "eta", label: "ETA", defaultWidth: 110, sortable: true },
   { key: "lfd", label: "LFD", defaultWidth: 110, sortable: true },
   { key: "pickup_date", label: "提柜日期", defaultWidth: 110, sortable: true },
+  { key: "created_at", label: "创建时间", defaultWidth: 180, sortable: true },
   { key: "email_subject", label: "邮件标题", defaultWidth: 180, sortable: true },
   { key: "email_from", label: "发件人", defaultWidth: 140, sortable: true },
   { key: "email_date", label: "邮件时间", defaultWidth: 150, sortable: true },

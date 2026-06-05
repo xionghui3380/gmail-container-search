@@ -8,10 +8,24 @@ import {
   resolveGmailTokens,
   setGmailTokenCookies,
 } from "@/lib/gmail-tokens";
+import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { serialize } from "@/lib/serialize";
 
 export const maxDuration = 300;
+
+async function safeLog(data: {
+  container_no: string;
+  step: string;
+  status: "success" | "failed" | "warning";
+  message: string;
+}) {
+  try {
+    await prisma.parse_logs.create({ data });
+  } catch (e) {
+    console.error("[parse_logs write failed]", e);
+  }
+}
 
 export async function POST(request: NextRequest) {
   const user = await requireUser(request);
@@ -47,6 +61,10 @@ export async function POST(request: NextRequest) {
       results.push({ orderId: id, status: "failed", errorMessage: "无效 ID" });
       continue;
     }
+
+    const order = await prisma.orders.findUnique({ where: { id } });
+    const containerNo = order?.container_no?.trim().toUpperCase() ?? String(id);
+
     try {
       const result = await parseOrderFromGmail(
         id,
@@ -61,6 +79,12 @@ export async function POST(request: NextRequest) {
       });
     } catch (err: unknown) {
       const msg = getErrorMessage(err);
+      await safeLog({
+        container_no: containerNo,
+        step: "batch_parse_order",
+        status: "failed",
+        message: `信息同步失败：${msg}`,
+      });
       if (isGmailAuthError(msg)) {
         const response = error(
           "Gmail 授权已过期，已停止批量检索",
