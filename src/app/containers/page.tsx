@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { FileText, RefreshCw, RotateCw, Search } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -13,6 +13,11 @@ import {
   isParseResultDateColumn,
   type ParseResultColumnKey,
 } from "@/lib/parse-result-columns";
+
+type UserInfo = {
+  fullName: string;
+  role: "admin" | "operator" | "viewer";
+};
 
 type ParseRow = Record<string, string | number | null | undefined> & {
   id: string;
@@ -28,7 +33,7 @@ function formatCell(value: unknown, key: ParseResultColumnKey) {
     const date = new Date(String(value));
     return Number.isNaN(date.getTime())
       ? "-"
-      : format(date, key === "email_date" ? "yyyy-MM-dd HH:mm" : "yyyy-MM-dd");
+      : format(date, key === "email_date" || key === "created_at" ? "yyyy-MM-dd HH:mm:ss" : "yyyy-MM-dd");
   }
   return value != null && String(value).trim() ? String(value) : "-";
 }
@@ -36,6 +41,7 @@ function formatCell(value: unknown, key: ParseResultColumnKey) {
 function ParseResultsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [user, setUser] = useState<UserInfo | null>(null);
   const [rows, setRows] = useState<ParseRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [containerNo, setContainerNo] = useState(searchParams.get("containerNo") ?? "");
@@ -47,6 +53,21 @@ function ParseResultsContent() {
   const pageSize = 50;
 
   const { visibleColumns, getWidth } = useParseResultTablePreferences();
+
+  const canOperate = useMemo(
+    () => user?.role === "admin" || user?.role === "operator",
+    [user],
+  );
+
+  const loadUser = useCallback(async () => {
+    const res = await fetch("/api/v1/auth/me");
+    if (!res.ok) {
+      router.push("/login?redirect=/containers");
+      return;
+    }
+    const json = await res.json();
+    setUser(json.data.user);
+  }, [router]);
 
   const loadRows = useCallback(async () => {
     setLoading(true);
@@ -66,6 +87,10 @@ function ParseResultsContent() {
       setLoading(false);
     }
   }, [page, containerNo, batchNo]);
+
+  useEffect(() => {
+    loadUser();
+  }, [loadUser]);
 
   useEffect(() => {
     loadRows();
@@ -97,10 +122,20 @@ function ParseResultsContent() {
     router.push(`/parse-logs?${params}`);
   }
 
+  async function handleLogout() {
+    await fetch("/api/v1/auth/logout", { method: "POST" });
+    router.push("/login");
+    router.refresh();
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
-    <DashboardLayout title="解析结果" subtitle="Gmail 邮件解析记录">
+    <DashboardLayout
+      title="解析结果"
+      subtitle={user ? `${user.fullName}（${user.role}）` : "加载中..."}
+      onLogout={handleLogout}
+    >
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
           value={containerNo}
@@ -175,15 +210,17 @@ function ParseResultsContent() {
                     ))}
                     <td className="sticky right-0 whitespace-nowrap bg-white px-2 py-3">
                       <div className="flex gap-2">
-                        <button
-                          type="button"
-                          disabled={reparsingId === row.id}
-                          onClick={() => handleReparse(row.id)}
-                          className="text-blue-600 hover:underline disabled:opacity-50"
-                        >
-                          <RotateCw size={12} className="mr-0.5 inline" />
-                          {reparsingId === row.id ? "解析中" : "重新解析"}
-                        </button>
+                        {canOperate && (
+                          <button
+                            type="button"
+                            disabled={reparsingId === row.id}
+                            onClick={() => handleReparse(row.id)}
+                            className="text-blue-600 hover:underline disabled:opacity-50"
+                          >
+                            <RotateCw size={12} className="mr-0.5 inline" />
+                            {reparsingId === row.id ? "解析中" : "重新解析"}
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => goParseLogs(row)}

@@ -23,6 +23,26 @@ async function main() {
     email: admin.email,
     password: "Admin123456",
   });
+
+  const viewerPasswordHash = await bcrypt.hash("Viewer123456", 12);
+  const viewer = await prisma.users.upsert({
+    where: { email: "viewer@gng.local" },
+    update: {},
+    create: {
+      username: "viewer",
+      email: "viewer@gng.local",
+      password_hash: viewerPasswordHash,
+      full_name: "普通用户",
+      role: "viewer",
+      is_enabled: true,
+    },
+  });
+
+  console.log("Seed viewer user:", {
+    id: viewer.id.toString(),
+    email: viewer.email,
+    password: "Viewer123456",
+  });
 }
 
 main()

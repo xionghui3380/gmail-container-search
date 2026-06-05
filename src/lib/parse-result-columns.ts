@@ -1,5 +1,6 @@
 export type ParseResultColumnKey =
   | "batch_no"
+  | "created_at"
   | "container_no"
   | "operation_type"
   | "customer"
@@ -23,6 +24,7 @@ export type ParseResultDataColumn = {
 
 export const PARSE_RESULT_COLUMNS: ParseResultDataColumn[] = [
   { key: "batch_no", label: "批次号", defaultWidth: 180, sortable: true },
+  { key: "created_at", label: "创建时间", defaultWidth: 180, sortable: true },
   { key: "container_no", label: "柜号", defaultWidth: 140, sortable: true },
   { key: "operation_type", label: "操作方式", defaultWidth: 90, sortable: true },
   { key: "customer", label: "客户", defaultWidth: 120, sortable: true },
@@ -55,6 +57,7 @@ export function getDefaultParseResultColumnWidths(): Record<string, number> {
 
 export function isParseResultDateColumn(key: ParseResultColumnKey): boolean {
   return (
+    key === "created_at" ||
     key === "order_date" ||
     key === "eta" ||
     key === "lfd" ||
