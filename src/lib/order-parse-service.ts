@@ -14,6 +14,10 @@ import {
   type EmailSearchResult,
 } from "@/lib/gmail";
 import { writeParseLog } from "@/lib/parse-log";
+import {
+  handleParseDbWriteFailure,
+  PARSE_DB_WRITE_FAILURE_MESSAGE,
+} from "@/lib/parse-db-error";
 
 export type OrderParseResult = {
   containerId: number;
@@ -61,18 +65,6 @@ async function logStep(
   });
 }
 
-async function markAttachmentFailed(
-  ctx: ParseContext,
-  attachmentId: number,
-  message: string,
-) {
-  await prisma.attachments.update({
-    where: { id: attachmentId },
-    data: { parse_status: "failed", error_message: message },
-  });
-  await logStep(prisma, ctx, "parse_excel", "failed", message, attachmentId);
-}
-
 function aggregateSummaries(
   items: Array<{ warehouse_code: string | null; carton_count: number | null }>,
 ) {
@@ -93,6 +85,14 @@ function aggregateSummaries(
     map.set(key, existing);
   }
   return Array.from(map.values());
+}
+
+function toDbFailureContext(ctx: ParseContext) {
+  return {
+    container_no: ctx.containerNo,
+    container_id: ctx.containerId,
+    batch_no: ctx.batchNo,
+  };
 }
 
 /** 下载并解析在事务外完成，避免 25P02 */
@@ -117,31 +117,22 @@ async function parseAndPersistAttachment(
     return { itemCount: 0, warnings: [message], failed: true };
   }
 
-  const attachmentRow = await prisma.attachments.create({
-    data: {
-      container_id: ctx.containerId,
-      container_no: ctx.containerNo,
-      batch_no: ctx.batchNo,
-      attachment_name: attachment.filename,
-      file_content: buffer,
-      parse_status: "parsing",
-    },
-  });
-
   let parsed: DeliveryParseResult;
   try {
     parsed = await parseDeliveryFileBuffer(buffer, attachment.filename);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await markAttachmentFailed(ctx, attachmentRow.id, message);
+    await logStep(prisma, ctx, "parse_excel", "failed", message);
     return { itemCount: 0, warnings: [message], failed: true };
   }
 
   if (parsed.items.length === 0) {
     const message = "附件中无有效明细行";
-    await markAttachmentFailed(
+    await logStep(
+      prisma,
       ctx,
-      attachmentRow.id,
+      "parse_excel",
+      "failed",
       parsed.warnings.length > 0 ? parsed.warnings.join("；") : message,
     );
     return { itemCount: 0, warnings: parsed.warnings, failed: true };
@@ -152,7 +143,20 @@ async function parseAndPersistAttachment(
 
   try {
     await prisma.$transaction(async (tx) => {
-      const containerNos = Array.from(new Set(parsed.items.map((i) => i.container_no).filter(Boolean)));
+      const attachmentRow = await tx.attachments.create({
+        data: {
+          container_id: ctx.containerId,
+          container_no: ctx.containerNo,
+          batch_no: ctx.batchNo,
+          attachment_name: attachment.filename,
+          file_content: buffer,
+          parse_status: "parsing",
+        },
+      });
+
+      const containerNos = Array.from(
+        new Set(parsed.items.map((i) => i.container_no).filter(Boolean)),
+      );
       if (containerNos.length > 0) {
         await tx.delivery_items.updateMany({
           where: { container_no: { in: containerNos }, is_history: false },
@@ -165,18 +169,15 @@ async function parseAndPersistAttachment(
       }
       await tx.delivery_items.createMany({
         data: parsed.items.map((item) =>
-          deliveryItemToCreateInput(
-            item,
-            {
-              attachment_id: attachmentRow.id,
-              from_file_id: attachmentRow.id,
-              container_id: ctx.containerId,
-              batch_no: ctx.batchNo,
-            },
-          ),
+          deliveryItemToCreateInput(item, {
+            attachment_id: attachmentRow.id,
+            from_file_id: attachmentRow.id,
+            container_id: ctx.containerId,
+            batch_no: ctx.batchNo,
+          }),
         ),
       });
-      await rebuildWarehouseSummaries(tx, containerNos);
+      await rebuildWarehouseSummaries(tx, containerNos, ctx.batchNo);
       await tx.attachments.update({
         where: { id: attachmentRow.id },
         data: { parse_status: parseStatus, error_message: warnMsg },
@@ -189,7 +190,6 @@ async function parseAndPersistAttachment(
       "parse_excel",
       parsed.warnings.length > 0 ? "warning" : "success",
       `附件 ${attachment.filename} 解析 ${parsed.items.length} 条明细`,
-      attachmentRow.id,
     );
 
     return {
@@ -200,8 +200,7 @@ async function parseAndPersistAttachment(
       attachmentName: attachment.filename,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await markAttachmentFailed(ctx, attachmentRow.id, message);
+    const message = await handleParseDbWriteFailure(toDbFailureContext(ctx), err);
     return { itemCount: 0, warnings: [message], failed: true };
   }
 }
@@ -350,7 +349,9 @@ export async function parseOrderFromGmail(
 
     const errorMessage =
       parseStatus === "failed"
-        ? allWarnings[0] ?? "所有附件解析失败"
+        ? allWarnings.find((w) => w.startsWith(PARSE_DB_WRITE_FAILURE_MESSAGE)) ??
+          allWarnings[0] ??
+          "所有附件解析失败"
         : allWarnings.length > 0
           ? allWarnings.slice(0, 3).join("；")
           : null;
@@ -389,13 +390,10 @@ export async function parseOrderFromGmail(
       errorMessage: errorMessage ?? undefined,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await logStep(prisma, ctx, "parse_pipeline", "failed", message);
-    await prisma.containers.update({
-      where: { id: container.id },
-      data: { parse_status: "failed", error_message: message },
+    const message = await handleParseDbWriteFailure(toDbFailureContext(ctx), err, {
+      updateContainer: true,
     });
-    throw err;
+    throw new Error(message);
   }
 }
 
@@ -412,6 +410,7 @@ export async function reparseContainerFromGmail(
 async function rebuildWarehouseSummaries(
   tx: Prisma.TransactionClient,
   containerNos: string[],
+  batchNo?: string,
 ) {
   const where = containerNos.length > 0
     ? { container_no: { in: containerNos }, is_history: false }
@@ -432,6 +431,7 @@ async function rebuildWarehouseSummaries(
         warehouse_code: code,
         total_cartons: row._sum.carton_count ?? 0,
         item_count: row._count.id,
+        batch_no: batchNo ?? null,
         is_history: false,
       },
     });

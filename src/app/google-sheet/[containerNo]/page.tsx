@@ -160,10 +160,6 @@ export default function ContainerDetailPage({
     loadAll();
   }, [loadAll]);
 
-  useEffect(() => {
-    loadItems();
-  }, [loadItems]);
-
   async function handleLogout() {
     await fetch("/api/v1/auth/logout", { method: "POST" });
     router.push("/login");

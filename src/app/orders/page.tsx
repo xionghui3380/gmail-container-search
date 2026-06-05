@@ -70,8 +70,11 @@ const inputClass =
 const containerNoInvalidClass =
   "border-red-400 bg-red-50 text-red-600 placeholder:text-red-300 focus:border-red-500 focus:ring-1 focus:ring-red-400";
 
-function isContainerNoEmpty(value: string) {
-  return !value.trim();
+const CONTAINER_NO_PATTERN = /^[A-Z]{4}\d{7}$/;
+
+function isContainerNoInvalid(value: string) {
+  if (!value.trim()) return true;
+  return !CONTAINER_NO_PATTERN.test(value.trim().toUpperCase());
 }
 
 const cellNowrap = "whitespace-nowrap px-2 py-3";
@@ -153,7 +156,7 @@ function renderEditableInput(
         onBlur={onBlur}
         disabled={disabled}
         placeholder="柜号"
-        className={`${inputClass} ${isContainerNoEmpty(form.container_no) ? containerNoInvalidClass : ""}`}
+        className={`${inputClass} ${isContainerNoInvalid(form.container_no) ? containerNoInvalidClass : ""}`}
       />
     );
   }

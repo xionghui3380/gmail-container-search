@@ -1,3 +1,4 @@
+import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canDelete } from "@/lib/auth";
 import { error, success } from "@/lib/api-response";
@@ -6,9 +7,9 @@ import { serialize } from "@/lib/serialize";
 
 type Params = { params: { id: string } };
 
-export async function GET(request: Request, { params }: Params) {
-  const user = await requireUser(request as import("next/server").NextRequest);
-  if (!user) return error("Unauthorized", 401);
+export async function GET(request: NextRequest, { params }: Params) {
+  const user = await requireUser(request);
+  if (!user) return error("未登录", 401);
 
   const id = Number(params.id);
   if (Number.isNaN(id)) return error("无效 ID", 400);
@@ -18,9 +19,9 @@ export async function GET(request: Request, { params }: Params) {
   return success(serialize(item));
 }
 
-export async function DELETE(request: Request, { params }: Params) {
-  const user = await requireUser(request as import("next/server").NextRequest);
-  if (!user) return error("Unauthorized", 401);
+export async function DELETE(request: NextRequest, { params }: Params) {
+  const user = await requireUser(request);
+  if (!user) return error("未登录", 401);
   if (!canDelete(user.role)) return error("权限不足", 403);
 
   const id = Number(params.id);

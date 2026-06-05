@@ -1,3 +1,4 @@
+import { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { error, success } from "@/lib/api-response";
@@ -9,9 +10,9 @@ import {
 import { requireUser } from "@/lib/require-user";
 import { serialize } from "@/lib/serialize";
 
-export async function GET(request: Request) {
-  const user = await requireUser(request as import("next/server").NextRequest);
-  if (!user) return error("Unauthorized", 401);
+export async function GET(request: NextRequest) {
+  const user = await requireUser(request);
+  if (!user) return error("未登录", 401);
 
   const { searchParams } = new URL(request.url);
   const page = Math.max(1, Number(searchParams.get("page") ?? 1));

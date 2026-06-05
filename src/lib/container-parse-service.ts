@@ -21,6 +21,8 @@ import {
 } from "@/lib/gmail";
 import { parseOrderSheetBuffer, type OrderSheetRow } from "@/lib/order-sheet-import";
 import { writeParseLog } from "@/lib/parse-log";
+import { containerBatchNo } from "@/lib/batch-no";
+import { handleParseDbWriteFailure, PARSE_DB_WRITE_FAILURE_MESSAGE } from "@/lib/parse-db-error";
 import { containerCreateSchema } from "@/lib/validators";
 
 export type ParseEmailResult = {
@@ -48,7 +50,7 @@ type EmailMeta = {
 
 async function saveParsedDeliveryData(
   tx: Prisma.TransactionClient,
-  _containerId: number,
+  containerId: number,
   normalizedNo: string,
   parsed: DeliveryParseResult,
   _userId: bigint,
@@ -76,13 +78,18 @@ async function saveParsedDeliveryData(
     data: { is_history: true },
   });
 
+  const batchNo = containerBatchNo(containerId);
+
   await tx.delivery_items.createMany({
     data: parsed.items.map((item) =>
-      deliveryItemToCreateInput(item),
+      deliveryItemToCreateInput(item, {
+        container_id: containerId,
+        batch_no: batchNo,
+      }),
     ),
   });
 
-  await rebuildWarehouseSummaries(tx, [normalizedNo]);
+  await rebuildWarehouseSummaries(tx, [normalizedNo], batchNo);
 
   await updateCargoParseFields(tx, normalizedNo, {
     parse_status: parseStatus,
@@ -94,6 +101,54 @@ async function saveParsedDeliveryData(
   });
 
   await writeParseLog(tx, normalizedNo, "save_database", "success", "数据入库完成");
+}
+
+async function saveParsedDeliveryDataInTransaction(
+  containerId: number,
+  normalizedNo: string,
+  parsed: DeliveryParseResult,
+  userId: bigint,
+  emailMeta: EmailMeta,
+  parseStatus: parse_status,
+  searchLogMessage?: string,
+  beforeSave?: (tx: Prisma.TransactionClient) => Promise<void>,
+) {
+  try {
+    await prisma.$transaction(async (tx) => {
+      if (beforeSave) await beforeSave(tx);
+      await saveParsedDeliveryData(
+        tx,
+        containerId,
+        normalizedNo,
+        parsed,
+        userId,
+        emailMeta,
+        parseStatus,
+        searchLogMessage,
+      );
+    });
+  } catch (err) {
+    const message = await handleParseDbWriteFailure(
+      { container_no: normalizedNo, container_id: containerId },
+      err,
+    );
+    throw new Error(message);
+  }
+}
+
+async function handleParsePipelineFailure(
+  normalizedNo: string,
+  err: unknown,
+): Promise<never> {
+  const message = err instanceof Error ? err.message : String(err);
+  const isDbFailure = message.startsWith(PARSE_DB_WRITE_FAILURE_MESSAGE);
+  await prisma.$transaction(async (tx) => {
+    if (!isDbFailure) {
+      await writeParseLog(tx, normalizedNo, "parse_pipeline", "failed", message);
+    }
+    await setCargoParseFailed(tx, normalizedNo, message);
+  });
+  throw err;
 }
 
 export async function importOrderSheetRows(
@@ -281,24 +336,21 @@ export async function parseContainerEmail(
     const parseStatus: parse_status =
       parsed.warnings.length > 0 ? "partial_success" : "success";
 
-    await prisma.$transaction(async (tx) => {
-      await saveParsedDeliveryData(
-        tx,
-        container.id,
-        normalizedNo,
-        parsed,
-        userId,
-        {
-          messageId: detail.id,
-          subject: detail.subject,
-          from: detail.from,
-          date: detail.date,
-          attachmentName: excelAttachment.filename,
-        },
-        parseStatus,
-        `找到 ${emails.length} 封邮件，选用 ${best.subject || best.id}`,
-      );
-    });
+    await saveParsedDeliveryDataInTransaction(
+      container.id,
+      normalizedNo,
+      parsed,
+      userId,
+      {
+        messageId: detail.id,
+        subject: detail.subject,
+        from: detail.from,
+        date: detail.date,
+        attachmentName: excelAttachment.filename,
+      },
+      parseStatus,
+      `找到 ${emails.length} 封邮件，选用 ${best.subject || best.id}`,
+    );
 
     return {
       containerNo: normalizedNo,
@@ -310,12 +362,7 @@ export async function parseContainerEmail(
       warnings: parsed.warnings,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await prisma.$transaction(async (tx) => {
-      await writeParseLog(tx, normalizedNo, "parse_pipeline", "failed", message);
-      await setCargoParseFailed(tx, normalizedNo, message);
-    });
-    throw err;
+    return handleParsePipelineFailure(normalizedNo, err);
   }
 }
 
@@ -387,24 +434,21 @@ export async function parseContainerAttachment(
     const parseStatus: parse_status =
       parsed.warnings.length > 0 ? "partial_success" : "success";
 
-    await prisma.$transaction(async (tx) => {
-      await saveParsedDeliveryData(
-        tx,
-        container.id,
-        normalizedNo,
-        parsed,
-        userId,
-        {
-          messageId: detail.id,
-          subject: detail.subject,
-          from: detail.from,
-          date: detail.date,
-          attachmentName: attachment.filename,
-        },
-        parseStatus,
-        `手动选择邮件：${detail.subject || detail.id}，附件 ${attachment.filename}`,
-      );
-    });
+    await saveParsedDeliveryDataInTransaction(
+      container.id,
+      normalizedNo,
+      parsed,
+      userId,
+      {
+        messageId: detail.id,
+        subject: detail.subject,
+        from: detail.from,
+        date: detail.date,
+        attachmentName: attachment.filename,
+      },
+      parseStatus,
+      `手动选择邮件：${detail.subject || detail.id}，附件 ${attachment.filename}`,
+    );
 
     return {
       containerNo: normalizedNo,
@@ -415,12 +459,7 @@ export async function parseContainerAttachment(
       warnings: parsed.warnings,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await prisma.$transaction(async (tx) => {
-      await writeParseLog(tx, normalizedNo, "parse_pipeline", "failed", message);
-      await setCargoParseFailed(tx, normalizedNo, message);
-    });
-    throw err;
+    return handleParsePipelineFailure(normalizedNo, err);
   }
 }
 
@@ -462,30 +501,30 @@ export async function parseContainerUploadBuffer(
     const parseStatus: parse_status =
       parsed.warnings.length > 0 ? "partial_success" : "success";
 
-    await prisma.$transaction(async (tx) => {
-      await writeParseLog(
-        tx,
-        normalizedNo,
-        "upload_attachment",
-        "success",
-        `本地上传文件：${fileName}`,
-      );
-      await saveParsedDeliveryData(
-        tx,
-        container.id,
-        normalizedNo,
-        parsed,
-        userId,
-        {
-          messageId: `upload:${Date.now()}`,
-          subject: `本地上传：${fileName}`,
-          from: "local-upload",
-          date: new Date().toISOString(),
-          attachmentName: fileName,
-        },
-        parseStatus,
-      );
-    });
+    await saveParsedDeliveryDataInTransaction(
+      container.id,
+      normalizedNo,
+      parsed,
+      userId,
+      {
+        messageId: `upload:${Date.now()}`,
+        subject: `本地上传：${fileName}`,
+        from: "local-upload",
+        date: new Date().toISOString(),
+        attachmentName: fileName,
+      },
+      parseStatus,
+      undefined,
+      async (tx) => {
+        await writeParseLog(
+          tx,
+          normalizedNo,
+          "upload_attachment",
+          "success",
+          `本地上传文件：${fileName}`,
+        );
+      },
+    );
 
     return {
       containerNo: normalizedNo,
@@ -496,12 +535,7 @@ export async function parseContainerUploadBuffer(
       warnings: parsed.warnings,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await prisma.$transaction(async (tx) => {
-      await writeParseLog(tx, normalizedNo, "parse_pipeline", "failed", message);
-      await setCargoParseFailed(tx, normalizedNo, message);
-    });
-    throw err;
+    return handleParsePipelineFailure(normalizedNo, err);
   }
 }
 
@@ -528,6 +562,7 @@ export async function getContainerParseResult(containerNo: string) {
 async function rebuildWarehouseSummaries(
   tx: Prisma.TransactionClient,
   containerNos: string[],
+  batchNo?: string,
 ) {
   const where = containerNos.length > 0
     ? { container_no: { in: containerNos }, is_history: false }
@@ -548,6 +583,7 @@ async function rebuildWarehouseSummaries(
         warehouse_code: code,
         total_cartons: row._sum.carton_count ?? 0,
         item_count: row._count.id,
+        batch_no: batchNo ?? null,
         is_history: false,
       },
     });

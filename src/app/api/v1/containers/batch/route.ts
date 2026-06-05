@@ -1,3 +1,4 @@
+import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { canDelete } from "@/lib/auth";
@@ -8,9 +9,9 @@ const batchDeleteSchema = z.object({
   ids: z.array(z.string()).min(1, "请选择至少一条记录"),
 });
 
-export async function DELETE(request: Request) {
-  const user = await requireUser(request as import("next/server").NextRequest);
-  if (!user) return error("Unauthorized", 401);
+export async function DELETE(request: NextRequest) {
+  const user = await requireUser(request);
+  if (!user) return error("未登录", 401);
   if (!canDelete(user.role)) return error("权限不足", 403);
 
   try {
