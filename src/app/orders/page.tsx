@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  Zap,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -21,6 +22,7 @@ import {
   type OrderDataColumn,
   isOrderDateColumn,
 } from "@/lib/order-columns";
+import Link from "next/link";
 
 type OrderRow = {
   id: string;
@@ -329,6 +331,7 @@ export default function OrdersPage() {
   const [savingRowId, setSavingRowId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [searchingId, setSearchingId] = useState<string | null>(null);
+  const [batchSearching, setBatchSearching] = useState(false);
   const [sortState, setSortState] = useState<SortState>({ column: null, order: "desc" });
 
   const saveTimerRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -598,6 +601,53 @@ export default function OrdersPage() {
     loadRows();
   }
 
+  async function handleBatchSearch() {
+    if (selected.size === 0) return;
+    if (!confirm(`确认对选中的 ${selected.size} 条订单执行批量检索？`)) return;
+
+    setBatchSearching(true);
+    try {
+      const res = await fetch("/api/v1/orders/batch-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds: Array.from(selected) }),
+      });
+      const json = await res.json();
+
+      if (!res.ok) {
+        if (json.meta?.needReconnect) {
+          toast.error("Gmail 未连接或已过期，请先连接 Gmail");
+          window.open("/api/v1/gmail/auth", "_blank");
+        } else {
+          toast.error(json.message ?? "批量检索失败");
+        }
+        return;
+      }
+
+      const { succeeded = 0, failed = 0, results = [] } = json.data ?? {};
+      const details: string[] = [];
+      if (failed > 0) {
+        const failedItems = results
+          .filter((r: { status: string; errorMessage?: string }) => r.status === "failed")
+          .slice(0, 3)
+          .map((r: { orderId: number; errorMessage?: string }) => `订单 ${r.orderId}：${r.errorMessage ?? "未知错误"}`);
+        details.push(...failedItems);
+      }
+
+      toast.success(
+        `批量检索完成：${succeeded} 条成功，${failed} 条失败`,
+        {
+          description: details.length > 0 ? details.join("\n") : undefined,
+          duration: 6000,
+        },
+      );
+      setSelected(new Set());
+      loadRows();
+    } finally {
+      setBatchSearching(false);
+    }
+  }
+
   function toggleSelect(id: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -669,6 +719,23 @@ export default function OrdersPage() {
               <Plus size={15} />
               新建
             </button>
+            <button
+              type="button"
+              onClick={() => void handleBatchSearch()}
+              disabled={selected.size === 0 || batchSearching}
+              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-amber-500 px-3 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Zap size={15} />
+              {batchSearching ? "批量检索中..." : "批量检索"}
+            </button>
+            {batchSearching && (
+              <Link
+                href="/containers"
+                className="inline-flex h-9 items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 text-sm text-blue-700 hover:bg-blue-100"
+              >
+                查看解析进度 →
+              </Link>
+            )}
             <button
               type="button"
               onClick={handleBatchDelete}
