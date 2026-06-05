@@ -1,10 +1,10 @@
 import type { NextRequest, NextResponse } from "next/server";
 import { refreshAccessToken } from "@/lib/gmail";
 
-export const GMAIL_ACCESS_COOKIE = "gmail_access_token";
-export const GMAIL_REFRESH_COOKIE = "gmail_refresh_token";
+const GMAIL_ACCESS_COOKIE = "gmail_access_token";
+const GMAIL_REFRESH_COOKIE = "gmail_refresh_token";
 
-export type GmailTokenSet = {
+type GmailTokenSet = {
   accessToken: string;
   refreshToken?: string;
   refreshed: boolean;

@@ -14,7 +14,6 @@
     "db:customers": "prisma db execute --file prisma/sql/customers.sql --schema prisma/schema.prisma",
     "db:ensure-parse": "prisma db execute --file prisma/sql/ensure_parse_schema.sql --schema prisma/schema.prisma",
     "db:fix-autoincrement": "prisma db execute --file prisma/sql/fix_autoincrement_ids.sql --schema prisma/schema.prisma",
-    "db:customers": "prisma db execute --file prisma/sql/customers.sql --schema prisma/schema.prisma",
     "db:seed": "tsx prisma/seed.ts"
   },
   "prisma": {
@@ -28,7 +27,6 @@
     "bcryptjs": "^3.0.3",
     "date-fns": "^4.4.0",
     "exceljs": "^4.4.0",
-    "google-auth-library": "^10.6.2",
     "googleapis": "^173.0.0",
     "jose": "^6.2.3",
     "lucide-react": "^0.468.0",

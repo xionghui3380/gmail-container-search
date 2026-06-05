@@ -7,7 +7,7 @@ import {
   normalizeHeader,
 } from "@/lib/excel-utils";
 
-export type DeliveryItemParsed = {
+type DeliveryItemParsed = {
   container_no: string;
   customer_code: string | null;
   fba_id: string | null;
@@ -24,7 +24,7 @@ export type DeliveryItemParsed = {
   warnings: string[];
 };
 
-export type WarehouseSummaryComputed = {
+type WarehouseSummaryComputed = {
   warehouse_code: string;
   total_cartons: number;
   item_count: number;
@@ -105,7 +105,7 @@ function buildColumnMap(headerRow: string[]) {
   });
 }
 
-export function aggregateWarehouseSummaries(
+function aggregateWarehouseSummaries(
   items: DeliveryItemParsed[],
 ): WarehouseSummaryComputed[] {
   const map = new Map<string, { total: number; count: number }>();

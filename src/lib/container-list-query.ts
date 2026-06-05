@@ -7,7 +7,7 @@ import {
 
 const SORTABLE_SET = new Set<string>(SORTABLE_COLUMN_KEYS);
 
-export type SortOrder = "asc" | "desc";
+type SortOrder = "asc" | "desc";
 
 export function parseSortParams(sortBy: string | null, sortOrder: string | null) {
   const order: SortOrder = sortOrder === "desc" ? "desc" : "asc";

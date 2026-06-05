@@ -3,7 +3,7 @@ import { ORDER_SORTABLE_KEYS, type OrderColumnKey } from "@/lib/order-columns";
 
 const SORTABLE_SET = new Set<string>(ORDER_SORTABLE_KEYS);
 
-export type SortOrder = "asc" | "desc";
+type SortOrder = "asc" | "desc";
 
 export function parseOrderSortParams(sortBy: string | null, sortOrder: string | null) {
   const order: SortOrder = sortOrder === "desc" ? "desc" : "asc";

@@ -25,7 +25,7 @@ import { containerBatchNo } from "@/lib/batch-no";
 import { handleParseDbWriteFailure, PARSE_DB_WRITE_FAILURE_MESSAGE } from "@/lib/parse-db-error";
 import { containerCreateSchema } from "@/lib/validators";
 
-export type ParseEmailResult = {
+type ParseEmailResult = {
   containerNo: string;
   parseStatus: parse_status;
   email?: EmailSearchResult;

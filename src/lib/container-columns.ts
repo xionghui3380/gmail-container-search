@@ -23,7 +23,7 @@ export type ColumnKey =
   | "backend_delivery"
   | "appointment_colleague";
 
-export type ColumnFilterType = "text" | "select" | "date" | "boolean";
+type ColumnFilterType = "text" | "select" | "date" | "boolean";
 
 export type DataColumn = {
   key: ColumnKey;

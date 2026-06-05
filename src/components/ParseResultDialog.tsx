@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { format } from "date-fns";
 import { ChevronDown, ChevronUp, Download, FileSpreadsheet, X } from "lucide-react";
 import { toast } from "sonner";
 import { DELIVERY_ITEM_COLUMNS } from "@/lib/delivery-items-export";
@@ -240,11 +239,4 @@ export default function ParseResultDialog({ open, onClose, containerId }: ParseR
       </div>
     </div>
   );
-}
-
-export function formatLogTime(value?: string) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return format(date, "yyyy-MM-dd HH:mm:ss");
 }

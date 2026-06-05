@@ -19,7 +19,7 @@ import {
   PARSE_DB_WRITE_FAILURE_MESSAGE,
 } from "@/lib/parse-db-error";
 
-export type OrderParseResult = {
+type OrderParseResult = {
   containerId: number;
   batchNo: string;
   containerNo: string;

@@ -1,6 +1,6 @@
 import type { log_status, Prisma } from "@prisma/client";
 
-export type ParseLogMeta = {
+type ParseLogMeta = {
   container_no: string;
   container_id?: number | bigint | null;
   attachment_id?: number | null;

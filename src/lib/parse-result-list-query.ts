@@ -3,7 +3,7 @@ import { PARSE_RESULT_SORTABLE_KEYS, type ParseResultColumnKey } from "@/lib/par
 
 const SORTABLE_SET = new Set<string>(PARSE_RESULT_SORTABLE_KEYS);
 
-export type SortOrder = "asc" | "desc";
+type SortOrder = "asc" | "desc";
 
 export function parseParseResultSortParams(sortBy: string | null, sortOrder: string | null) {
   const order: SortOrder = sortOrder === "desc" ? "desc" : "asc";

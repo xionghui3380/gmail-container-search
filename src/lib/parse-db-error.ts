@@ -3,20 +3,19 @@ import { prisma } from "@/lib/prisma";
 /** 程序设计要求：数据库写入失败时的统一说明 */
 export const PARSE_DB_WRITE_FAILURE_MESSAGE = "数据库写入失败，事务已回滚";
 
-export type ParseDbFailureContext = {
+type ParseDbFailureContext = {
   container_no: string;
   container_id?: number | null;
   batch_no?: string | null;
   attachment_id?: number | null;
 };
 
-export function formatParseDbError(err: unknown) {
+function formatParseDbError(err: unknown) {
   const detail = err instanceof Error ? err.message : String(err);
   return `${PARSE_DB_WRITE_FAILURE_MESSAGE}：${detail}`;
 }
 
-/** 写入 parse_logs（step=save_database, status=failed） */
-export async function logParseDbWriteFailure(
+async function logParseDbWriteFailure(
   ctx: ParseDbFailureContext,
   err: unknown,
 ) {

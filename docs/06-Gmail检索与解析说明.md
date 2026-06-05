@@ -189,8 +189,8 @@ flowchart TD
 ### 5.3 批次号 `batch_no`
 
 ```typescript
-// batch-no.ts
-柜号-yyyyMMddHHmmss   // 例 EGSU6027772-20260604135922
+// batch-no.ts — 批次号统一使用 containers.id
+containerBatchNo(containerId: number) => String(containerId)
 ```
 
 同柜多次「检索」产生多行 `containers`，靠 `batch_no` 区分；`delivery_items`、`warehouse_summaries`、`parse_logs` 都带同一 `batch_no`。

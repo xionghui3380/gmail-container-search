@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 
-export type DeliveryItemExportRow = {
+type DeliveryItemExportRow = {
   container_no?: string | null;
   customer_code?: string | null;
   fba_id?: string | null;
@@ -18,7 +18,7 @@ export type DeliveryItemExportRow = {
 };
 
 /** 导出时使用的列，与源文件模板格式一致 */
-export const DELIVERY_EXPORT_COLUMNS = [
+const DELIVERY_EXPORT_COLUMNS = [
   { key: "container_no", label: "柜号" },
   { key: "customer_code", label: "SO/客户代码/唛头" },
   { key: "fba_id", label: "FBA ID" },
@@ -48,7 +48,7 @@ export const DELIVERY_ITEM_COLUMNS = [
   { key: "warning", label: "警告" },
 ] as const;
 
-export type DeliveryExportFormat = "csv" | "xlsx";
+type DeliveryExportFormat = "csv" | "xlsx";
 
 export function detectExportFormat(filename?: string | null): DeliveryExportFormat {
   const name = (filename ?? "").trim().toLowerCase();

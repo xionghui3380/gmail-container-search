@@ -64,7 +64,7 @@ export function isParseResultDateColumn(key: ParseResultColumnKey): boolean {
   );
 }
 
-export const PARSE_STATUS_OPTIONS = [
+const PARSE_STATUS_OPTIONS = [
   { value: "pending", label: "待解析" },
   { value: "parsing", label: "解析中" },
   { value: "success", label: "成功" },

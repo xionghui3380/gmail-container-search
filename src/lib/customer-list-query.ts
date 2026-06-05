@@ -3,7 +3,7 @@ import {CUSTOMER_SORTABLE_KEYS, type CustomerColumnKey} from "@/lib/customer-col
 
 const SORTABLE_SET = new Set<string>(CUSTOMER_SORTABLE_KEYS);
 
-export type SortOrder = "asc" | "desc";
+type SortOrder = "asc" | "desc";
 
 /** 列表默认只查未软删的记录 */
 export const customerListBaseWhere: Prisma.customersWhereInput = {

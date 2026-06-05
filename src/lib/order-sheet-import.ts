@@ -16,7 +16,7 @@ export type OrderSheetRow = Partial<ContainerInput> & {
   rowNumber: number;
 };
 
-export type OrderSheetImportResult = {
+type OrderSheetImportResult = {
   total: number;
   imported: number;
   skipped: number;
@@ -188,10 +188,4 @@ export async function parseOrderSheetBuffer(buffer: Buffer): Promise<OrderSheetI
   }
 
   return result;
-}
-
-export async function parseOrderSheetFile(filePath: string) {
-  const fs = await import("fs/promises");
-  const buffer = await fs.readFile(filePath);
-  return parseOrderSheetBuffer(buffer);
 }
