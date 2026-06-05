@@ -114,11 +114,12 @@ async function saveParsedDeliveryDataInTransaction(
   beforeSave?: (tx: Prisma.TransactionClient) => Promise<void>,
 ) {
   try {
-    await prisma.$transaction(async (tx) => {
-      if (beforeSave) await beforeSave(tx);
-      await saveParsedDeliveryData(
-        tx,
-        containerId,
+    await prisma.$transaction(
+      async (tx) => {
+        if (beforeSave) await beforeSave(tx);
+        await saveParsedDeliveryData(
+          tx,
+          containerId,
         normalizedNo,
         parsed,
         userId,
@@ -126,8 +127,9 @@ async function saveParsedDeliveryDataInTransaction(
         parseStatus,
         searchLogMessage,
       );
-    });
-  } catch (err) {
+    },
+    { maxWait: 10000, timeout: 60000 },
+  );  } catch (err) {
     const message = await handleParseDbWriteFailure(
       { container_no: normalizedNo, container_id: containerId },
       err,
@@ -575,17 +577,16 @@ async function rebuildWarehouseSummaries(
     _sum: { carton_count: true, weight: true, cbm: true },
   });
 
-  for (const row of grouped) {
-    const code = row.warehouse_code ?? "";
-    await tx.warehouse_summaries.create({
-      data: {
+  if (grouped.length > 0) {
+    await tx.warehouse_summaries.createMany({
+      data: grouped.map((row) => ({
         container_no: row.container_no ?? "",
-        warehouse_code: code,
+        warehouse_code: row.warehouse_code ?? "",
         total_cartons: row._sum.carton_count ?? 0,
         item_count: row._count.id,
         batch_no: batchNo ?? null,
         is_history: false,
-      },
+      })),
     });
   }
 }

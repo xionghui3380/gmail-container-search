@@ -142,8 +142,9 @@ async function parseAndPersistAttachment(
   const parseStatus = parsed.warnings.length > 0 ? "partial_success" : "success";
 
   try {
-    await prisma.$transaction(async (tx) => {
-      const attachmentRow = await tx.attachments.create({
+    await prisma.$transaction(
+      async (tx) => {
+        const attachmentRow = await tx.attachments.create({
         data: {
           container_id: ctx.containerId,
           container_no: ctx.containerNo,
@@ -182,7 +183,9 @@ async function parseAndPersistAttachment(
         where: { id: attachmentRow.id },
         data: { parse_status: parseStatus, error_message: warnMsg },
       });
-    });
+    },
+    { maxWait: 10000, timeout: 60000 },
+  );
 
     await logStep(
       prisma,
@@ -423,17 +426,16 @@ async function rebuildWarehouseSummaries(
     _sum: { carton_count: true },
   });
 
-  for (const row of grouped) {
-    const code = row.warehouse_code ?? "";
-    await tx.warehouse_summaries.create({
-      data: {
+  if (grouped.length > 0) {
+    await tx.warehouse_summaries.createMany({
+      data: grouped.map((row) => ({
         container_no: row.container_no ?? "",
-        warehouse_code: code,
+        warehouse_code: row.warehouse_code ?? "",
         total_cartons: row._sum.carton_count ?? 0,
         item_count: row._count.id,
         batch_no: batchNo ?? null,
         is_history: false,
-      },
+      })),
     });
   }
 }
