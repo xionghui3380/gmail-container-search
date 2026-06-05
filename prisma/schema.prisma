@@ -161,6 +161,7 @@ model delivery_items {
   pallet_count        Int?
   warehouse_note      String?    @db.Text
   warning             String?    @db.Text
+  is_warning          Boolean    @default(false)
   is_history          Boolean    @default(false)
   created_at          DateTime   @default(now()) @db.Timestamptz(6)
   attachments         attachments? @relation(fields: [attachment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -172,6 +173,7 @@ model delivery_items {
   @@index([fba_id], map: "idx_delivery_items_fba_id")
   @@index([warehouse_code], map: "idx_delivery_items_warehouse_code")
   @@index([is_history], map: "idx_delivery_items_is_history")
+  @@index([is_warning], map: "idx_delivery_items_is_warning")
 }
 
 /// 解析过程日志

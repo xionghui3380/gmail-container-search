@@ -121,7 +121,7 @@ async function parseAndPersistAttachment(
       accessToken,
       refreshToken,
     );
-    parsed = await parseDeliveryFileBuffer(buffer, attachment.filename, ctx.containerNo);
+    parsed = await parseDeliveryFileBuffer(buffer, attachment.filename);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await markAttachmentFailed(ctx, attachmentRow.id, message);

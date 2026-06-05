@@ -19,6 +19,7 @@ type DeliveryItem = {
   warehouse_code?: string | null;
   delivery_method?: string | null;
   warning?: string | null;
+  is_warning?: boolean;
 };
 
 type AttachmentInfo = {
@@ -213,7 +214,7 @@ export default function ParseResultDialog({ open, onClose, containerId }: ParseR
                               </tr>
                             ) : (
                               rows.map((row) => (
-                                <tr key={row.id} className={`border-t border-slate-100 ${row.warning ? "bg-amber-50" : ""}`}>
+                                <tr key={row.id} className={`border-t border-slate-100 ${row.is_warning || row.warning ? "bg-amber-50" : ""}`}>
                                   {ITEM_COLUMNS.map((col) => (
                                     <td key={col.key} className="whitespace-nowrap px-3 py-2">
                                       {col.key === "warning" && row.warning ? (

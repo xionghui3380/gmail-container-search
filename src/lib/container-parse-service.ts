@@ -259,7 +259,7 @@ export async function parseContainerEmail(
       accessToken,
       refreshToken,
     );
-    const parsed = await parseDeliveryExcelBuffer(buffer, normalizedNo);
+    const parsed = await parseDeliveryExcelBuffer(buffer);
 
     if (parsed.items.length === 0) {
       await prisma.$transaction(async (tx) => {
@@ -366,7 +366,7 @@ export async function parseContainerAttachment(
       accessToken,
       refreshToken,
     );
-    const parsed = await parseDeliveryExcelBuffer(buffer, normalizedNo);
+    const parsed = await parseDeliveryExcelBuffer(buffer);
 
     if (parsed.items.length === 0) {
       await prisma.$transaction(async (tx) => {
@@ -441,7 +441,7 @@ export async function parseContainerUploadBuffer(
   await setCargoParsing(normalizedNo);
 
   try {
-    const parsed = await parseDeliveryExcelBuffer(buffer, normalizedNo);
+    const parsed = await parseDeliveryExcelBuffer(buffer);
 
     if (parsed.items.length === 0) {
       await prisma.$transaction(async (tx) => {

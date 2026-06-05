@@ -20,6 +20,7 @@ type DeliveryItem = {
   warehouse_code?: string | null;
   delivery_method?: string | null;
   warning?: string | null;
+  is_warning?: boolean;
 };
 
 const COLUMNS: { key: keyof DeliveryItem; label: string }[] = [
@@ -86,7 +87,11 @@ function WarehouseDetailContent() {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   const isRowAbnormal = (row: DeliveryItem) =>
-    !row.warehouse_code || row.carton_count == null || row.carton_count === 0;
+    row.is_warning ||
+    !row.warehouse_code ||
+    row.carton_count == null ||
+    row.carton_count === 0 ||
+    !row.container_no;
 
   return (
     <DashboardLayout

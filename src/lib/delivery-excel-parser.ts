@@ -127,7 +127,6 @@ export function aggregateWarehouseSummaries(
 
 export async function parseDeliveryExcelBuffer(
   buffer: Buffer,
-  defaultContainerNo?: string,
 ): Promise<DeliveryParseResult> {
   const workbook = await loadWorkbook(buffer);
   const worksheet = workbook.worksheets[0];
@@ -136,20 +135,19 @@ export async function parseDeliveryExcelBuffer(
   }
 
   const matrix = getWorksheetRows(worksheet, 30);
-  return parseDeliveryMatrix(matrix, defaultContainerNo);
+  return parseDeliveryMatrix(matrix);
 }
 
 /** 支持 Excel / CSV 附件 */
 export async function parseDeliveryFileBuffer(
   buffer: Buffer,
   filename?: string,
-  defaultContainerNo?: string,
 ): Promise<DeliveryParseResult> {
   if (filename?.toLowerCase().endsWith(".csv")) {
     const matrix = parseCsvBufferToMatrix(buffer);
-    return parseDeliveryMatrix(matrix, defaultContainerNo);
+    return parseDeliveryMatrix(matrix);
   }
-  return parseDeliveryExcelBuffer(buffer, defaultContainerNo);
+  return parseDeliveryExcelBuffer(buffer);
 }
 
 function parseCsvBufferToMatrix(buffer: Buffer): string[][] {
@@ -194,10 +192,7 @@ function parseCsvLine(line: string, delimiter: string): string[] {
   return result;
 }
 
-function parseDeliveryMatrix(
-  matrix: string[][],
-  defaultContainerNo?: string,
-): DeliveryParseResult {
+function parseDeliveryMatrix(matrix: string[][]): DeliveryParseResult {
   const headerRowIndex = detectHeaderRow(matrix);
   const headerRow = matrix[headerRowIndex] ?? [];
   const columnMap = buildColumnMap(headerRow);
@@ -209,7 +204,7 @@ function parseDeliveryMatrix(
     if (!line.some(Boolean) || isSummaryRow(line)) continue;
 
     const row: DeliveryItemParsed = {
-      container_no: defaultContainerNo?.toUpperCase() ?? "",
+      container_no: "",
       customer_code: null,
       fba_id: null,
       reference_id: null,
@@ -247,20 +242,22 @@ function parseDeliveryMatrix(
     const containerCol = columnMap.findIndex((f) => f === "container_no");
     if (containerCol >= 0) {
       const fromRow = (line[containerCol] ?? "").trim().toUpperCase();
-      if (fromRow) row.container_no = fromRow;
-    }
-    if (!row.container_no && defaultContainerNo) {
-      row.container_no = defaultContainerNo.toUpperCase();
+      row.container_no = fromRow;
     }
     if (!row.container_no) {
-      row.container_no = "";
       row.warnings.push("柜号为空");
       warnings.push(`第 ${i + 1} 行：柜号为空`);
     }
 
-    if (!row.fba_id && !row.reference_id && !row.warehouse_code && row.carton_count === null) {
-      if (row.container_no) continue;
-    }
+    const hasOtherData =
+      !!row.fba_id ||
+      !!row.reference_id ||
+      !!row.warehouse_code ||
+      row.carton_count !== null ||
+      row.cbm !== null ||
+      row.weight !== null;
+    if (!row.container_no && !hasOtherData) continue;
+    if (row.container_no && !hasOtherData) continue;
 
     if (!row.warehouse_code) {
       row.warnings.push("仓库代码为空");
@@ -308,5 +305,6 @@ export function deliveryItemToCreateInput(
     pallet_count: item.pallet_count,
     warehouse_note: item.warehouse_note,
     warning: item.warnings.length > 0 ? item.warnings.join("; ") : null,
+    is_warning: item.warnings.length > 0,
   };
 }
