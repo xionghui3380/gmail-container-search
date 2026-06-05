@@ -18,7 +18,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
   if (type === "items") {
     const items = await prisma.delivery_items.findMany({
-      where: { container_no: containerNo },
+      where: { container_no: containerNo, is_history: false },
       orderBy: [{ warehouse_code: "asc" }, { id: "asc" }],
     });
     const body = exportDeliveryItemsToCsv(items);
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
 
   const summaries = await prisma.warehouse_summaries.findMany({
-    where: { container_no: containerNo },
+    where: { container_no: containerNo, is_history: false },
     orderBy: { warehouse_code: "asc" },
   });
   const header = ["container_no", "warehouse_code", "total_cartons", "item_count"];

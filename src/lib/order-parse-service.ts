@@ -73,36 +73,6 @@ async function markAttachmentFailed(
   await logStep(prisma, ctx, "parse_excel", "failed", message, attachmentId);
 }
 
-async function saveWarehouseSummaries(
-  tx: Prisma.TransactionClient,
-  ctx: ParseContext,
-  summaries: Array<{ warehouse_code: string; total_cartons: number; item_count: number }>,
-) {
-  for (const summary of summaries) {
-    await tx.warehouse_summaries.upsert({
-      where: {
-        container_no_warehouse_code_batch_no: {
-          container_no: ctx.containerNo,
-          warehouse_code: summary.warehouse_code,
-          batch_no: ctx.batchNo,
-        },
-      },
-      create: {
-        container_no: ctx.containerNo,
-        batch_no: ctx.batchNo,
-        warehouse_code: summary.warehouse_code,
-        total_cartons: summary.total_cartons,
-        item_count: summary.item_count,
-      },
-      update: {
-        total_cartons: summary.total_cartons,
-        item_count: summary.item_count,
-        updated_at: new Date(),
-      },
-    });
-  }
-}
-
 function aggregateSummaries(
   items: Array<{ warehouse_code: string | null; carton_count: number | null }>,
 ) {
@@ -168,14 +138,22 @@ async function parseAndPersistAttachment(
     return { itemCount: 0, warnings: parsed.warnings, failed: true };
   }
 
-  const summaries = parsed.summaries.length
-    ? parsed.summaries
-    : aggregateSummaries(parsed.items);
   const warnMsg = parsed.warnings.length > 0 ? parsed.warnings.join("；") : null;
   const parseStatus = parsed.warnings.length > 0 ? "partial_success" : "success";
 
   try {
     await prisma.$transaction(async (tx) => {
+      const containerNos = Array.from(new Set(parsed.items.map((i) => i.container_no).filter(Boolean)));
+      if (containerNos.length > 0) {
+        await tx.delivery_items.updateMany({
+          where: { container_no: { in: containerNos }, is_history: false },
+          data: { is_history: true },
+        });
+        await tx.warehouse_summaries.updateMany({
+          where: { container_no: { in: containerNos }, is_history: false },
+          data: { is_history: true },
+        });
+      }
       await tx.delivery_items.createMany({
         data: parsed.items.map((item) =>
           deliveryItemToCreateInput(
@@ -188,7 +166,7 @@ async function parseAndPersistAttachment(
           ),
         ),
       });
-      await saveWarehouseSummaries(tx, ctx, summaries);
+      await rebuildWarehouseSummaries(tx, ctx.containerNo);
       await tx.attachments.update({
         where: { id: attachmentRow.id },
         data: { parse_status: parseStatus, error_message: warnMsg },
@@ -207,7 +185,7 @@ async function parseAndPersistAttachment(
     return {
       itemCount: parsed.items.length,
       warnings: parsed.warnings,
-      summaryCount: summaries.length,
+      summaryCount: parsed.summaries.length || aggregateSummaries(parsed.items).length,
       failed: false,
       attachmentName: attachment.filename,
     };
@@ -415,4 +393,29 @@ export async function reparseContainerFromGmail(
   const existing = await prisma.containers.findUnique({ where: { id: containerId } });
   if (!existing) throw new Error("解析记录不存在");
   return parseOrderFromGmail(existing.order_id, accessToken, refreshToken);
+}
+
+async function rebuildWarehouseSummaries(
+  tx: Prisma.TransactionClient,
+  containerNo: string,
+) {
+  const grouped = await tx.delivery_items.groupBy({
+    by: ["warehouse_code"],
+    where: { container_no: containerNo, is_history: false },
+    _count: { id: true },
+    _sum: { carton_count: true },
+  });
+
+  for (const row of grouped) {
+    const code = row.warehouse_code ?? "";
+    await tx.warehouse_summaries.create({
+      data: {
+        container_no: containerNo,
+        warehouse_code: code,
+        total_cartons: row._sum.carton_count ?? 0,
+        item_count: row._count.id,
+        is_history: false,
+      },
+    });
+  }
 }

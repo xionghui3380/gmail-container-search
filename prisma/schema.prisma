@@ -161,6 +161,7 @@ model delivery_items {
   pallet_count        Int?
   warehouse_note      String?    @db.Text
   warning             String?    @db.Text
+  is_history          Boolean    @default(false)
   created_at          DateTime   @default(now()) @db.Timestamptz(6)
   attachments         attachments? @relation(fields: [attachment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -170,6 +171,7 @@ model delivery_items {
   @@index([batch_no], map: "idx_delivery_items_batch_no")
   @@index([fba_id], map: "idx_delivery_items_fba_id")
   @@index([warehouse_code], map: "idx_delivery_items_warehouse_code")
+  @@index([is_history], map: "idx_delivery_items_is_history")
 }
 
 /// 解析过程日志
@@ -233,12 +235,14 @@ model warehouse_summaries {
   warehouse_code String     @db.VarChar(50)
   total_cartons  Int        @default(0)
   item_count     Int        @default(0)
+  is_history     Boolean    @default(false)
   created_at     DateTime   @default(now()) @db.Timestamptz(6)
   updated_at     DateTime   @default(now()) @db.Timestamptz(6)
 
   @@unique([container_no, warehouse_code, batch_no], map: "uk_warehouse_summaries_container_warehouse_batch")
   @@index([container_no], map: "idx_warehouse_summaries_container_no")
   @@index([batch_no], map: "idx_warehouse_summaries_batch_no")
+  @@index([is_history], map: "idx_warehouse_summaries_is_history")
 }
 
 enum log_status {

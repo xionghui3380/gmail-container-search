@@ -67,8 +67,14 @@ async function saveParsedDeliveryData(
     `解析 ${parsed.items.length} 条明细，表头第 ${parsed.headerRow} 行`,
   );
 
-  await tx.delivery_items.deleteMany({ where: { container_no: normalizedNo } });
-  await tx.warehouse_summaries.deleteMany({ where: { container_no: normalizedNo } });
+  await tx.delivery_items.updateMany({
+    where: { container_no: normalizedNo, is_history: false },
+    data: { is_history: true },
+  });
+  await tx.warehouse_summaries.updateMany({
+    where: { container_no: normalizedNo, is_history: false },
+    data: { is_history: true },
+  });
 
   await tx.delivery_items.createMany({
     data: parsed.items.map((item) =>
@@ -76,16 +82,7 @@ async function saveParsedDeliveryData(
     ),
   });
 
-  for (const summary of parsed.summaries) {
-    await tx.warehouse_summaries.create({
-      data: {
-        container_no: normalizedNo,
-        warehouse_code: summary.warehouse_code,
-        total_cartons: summary.total_cartons,
-        item_count: summary.item_count,
-      },
-    });
-  }
+  await rebuildWarehouseSummaries(tx, normalizedNo);
 
   await updateCargoParseFields(tx, normalizedNo, {
     parse_status: parseStatus,
@@ -517,9 +514,38 @@ export async function getContainerParseResult(containerNo: string) {
   if (!container) return null;
 
   const warehouse_summaries = await prisma.warehouse_summaries.findMany({
-    where: { container_no: normalizedNo },
+    where: { container_no: normalizedNo, is_history: false },
     orderBy: { warehouse_code: "asc" },
   });
 
   return { ...container, warehouse_summaries };
+}
+
+/**
+ * 基于 delivery_items(is_history=false) 重新统计仓库汇总并写入 warehouse_summaries。
+ * 先标记旧汇总为 history，再用 GROUP BY 聚合后批量插入。
+ */
+async function rebuildWarehouseSummaries(
+  tx: Prisma.TransactionClient,
+  containerNo: string,
+) {
+  const grouped = await tx.delivery_items.groupBy({
+    by: ["warehouse_code"],
+    where: { container_no: containerNo, is_history: false },
+    _count: { id: true },
+    _sum: { carton_count: true, weight: true, cbm: true },
+  });
+
+  for (const row of grouped) {
+    const code = row.warehouse_code ?? "";
+    await tx.warehouse_summaries.create({
+      data: {
+        container_no: containerNo,
+        warehouse_code: code,
+        total_cartons: row._sum.carton_count ?? 0,
+        item_count: row._count.id,
+        is_history: false,
+      },
+    });
+  }
 }

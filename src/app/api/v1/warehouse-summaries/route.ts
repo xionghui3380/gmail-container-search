@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { error, success } from "@/lib/api-response";
 import { requireUser } from "@/lib/require-user";
@@ -11,24 +10,35 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const containerNo = searchParams.get("containerNo")?.trim().toUpperCase();
-  const batchNo = searchParams.get("batchNo")?.trim();
+  const warehouseCode = searchParams.get("warehouseCode")?.trim();
   const page = Math.max(1, Number(searchParams.get("page") ?? 1));
   const pageSize = Math.min(200, Math.max(1, Number(searchParams.get("pageSize") ?? 50)));
-  const skip = (page - 1) * pageSize;
 
-  const where: Prisma.warehouse_summariesWhereInput = {};
-  if (containerNo) where.container_no = containerNo;
-  if (batchNo) where.batch_no = batchNo;
+  const whereBase = {
+    is_history: false,
+    ...(containerNo ? { container_no: { equals: containerNo } } : {}),
+    ...(warehouseCode ? { warehouse_code: { contains: warehouseCode, mode: "insensitive" as const } } : {}),
+  };
 
-  const [total, rows] = await Promise.all([
-    prisma.warehouse_summaries.count({ where }),
-    prisma.warehouse_summaries.findMany({
-      where,
-      orderBy: [{ container_no: "asc" }, { warehouse_code: "asc" }],
-      skip,
-      take: pageSize,
-    }),
-  ]);
+  const grouped = await prisma.delivery_items.groupBy({
+    by: ["warehouse_code"],
+    where: whereBase,
+    _count: { id: true },
+    _sum: { carton_count: true, weight: true, cbm: true },
+    orderBy: { warehouse_code: "asc" },
+  });
+
+  const total = grouped.length;
+  const start = (page - 1) * pageSize;
+  const paged = grouped.slice(start, start + pageSize);
+
+  const rows = paged.map((row) => ({
+    warehouse_code: row.warehouse_code || "(空)",
+    item_count: row._count.id,
+    total_cartons: row._sum.carton_count ?? 0,
+    total_weight: row._sum.weight ?? 0,
+    total_cbm: row._sum.cbm ?? 0,
+  }));
 
   return success(serialize(rows), {
     page,
