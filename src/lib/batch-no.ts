@@ -1,7 +1,10 @@
-import { format } from "date-fns";
+/** 批次号统一使用 containers.id */
+export function containerBatchNo(containerId: number) {
+  return String(containerId);
+}
 
-/** 生成解析批次号：柜号-时间戳 */
+/** @deprecated 使用 containerBatchNo(container.id) */
 export function generateBatchNo(containerNo: string) {
-  const ts = format(new Date(), "yyyyMMddHHmmss");
-  return `${containerNo.trim().toUpperCase()}-${ts}`;
+  void containerNo;
+  throw new Error("generateBatchNo 已废弃，请使用 containerBatchNo(containers.id)");
 }

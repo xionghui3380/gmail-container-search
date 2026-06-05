@@ -129,11 +129,13 @@ model attachments {
   container_no    String    @db.VarChar(20)
   batch_no        String    @db.VarChar(50)
   attachment_name String?   @db.Text
+  file_content    Bytes?    @db.ByteA
   parse_status    String    @default("pending") @db.VarChar(30)
   error_message   String?   @db.Text
   created_at      DateTime  @default(now()) @db.Timestamp(6)
   containers      containers @relation(fields: [container_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  delivery_items  delivery_items[]
+  delivery_items  delivery_items[] @relation("DeliveryItemAttachment")
+  delivery_items_from_file delivery_items[] @relation("DeliveryItemFromFile")
 
   @@index([container_id], map: "idx_attachments_container_id")
   @@index([container_no], map: "idx_attachments_container_no")
@@ -145,6 +147,7 @@ model attachments {
 model delivery_items {
   id                  Int        @id @default(autoincrement())
   attachment_id       Int?
+  from_file_id        Int?
   container_id        Int?
   container_no        String     @db.VarChar(20)
   batch_no            String?    @db.VarChar(50)
@@ -164,10 +167,12 @@ model delivery_items {
   is_warning          Boolean    @default(false)
   is_history          Boolean    @default(false)
   created_at          DateTime   @default(now()) @db.Timestamptz(6)
-  attachments         attachments? @relation(fields: [attachment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  attachments         attachments? @relation("DeliveryItemAttachment", fields: [attachment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  from_file           attachments? @relation("DeliveryItemFromFile", fields: [from_file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([container_no], map: "idx_delivery_items_container_no")
   @@index([attachment_id], map: "idx_delivery_items_attachment_id")
+  @@index([from_file_id], map: "idx_delivery_items_from_file_id")
   @@index([container_id], map: "idx_delivery_items_container_id")
   @@index([batch_no], map: "idx_delivery_items_batch_no")
   @@index([fba_id], map: "idx_delivery_items_fba_id")

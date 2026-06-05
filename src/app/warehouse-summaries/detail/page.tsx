@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useState } from "react";
-import { RefreshCw, Search, ArrowLeft } from "lucide-react";
+import { RefreshCw, Search, ArrowLeft, Download } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -21,6 +21,7 @@ type DeliveryItem = {
   delivery_method?: string | null;
   warning?: string | null;
   is_warning?: boolean;
+  from_file_id?: string | number | null;
 };
 
 const COLUMNS: { key: keyof DeliveryItem; label: string }[] = [
@@ -49,6 +50,7 @@ function WarehouseDetailContent() {
   const [searchRefId, setSearchRefId] = useState(searchParams.get("referenceId") ?? "");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const pageSize = 50;
 
   const loadRows = useCallback(async () => {
@@ -92,6 +94,35 @@ function WarehouseDetailContent() {
     row.carton_count == null ||
     row.carton_count === 0 ||
     !row.container_no;
+
+  async function handleDownloadAttachment(fromFileId: string | number) {
+    setDownloadingId(String(fromFileId));
+    try {
+      const res = await fetch(`/api/v1/attachments/${fromFileId}/download`);
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        toast.error(json?.message ?? "下载失败");
+        return;
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+      const asciiMatch = disposition.match(/filename="([^"]+)"/i);
+      const filename = utf8Match
+        ? decodeURIComponent(utf8Match[1])
+        : asciiMatch?.[1] ?? "attachment.xlsx";
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloadingId(null);
+    }
+  }
 
   return (
     <DashboardLayout
@@ -180,18 +211,19 @@ function WarehouseDetailContent() {
                     {col.label}
                   </th>
                 ))}
+                <th className="whitespace-nowrap px-3 py-3 text-center">操作</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={COLUMNS.length} className="py-16 text-center text-slate-400">
+                  <td colSpan={COLUMNS.length + 1} className="py-16 text-center text-slate-400">
                     加载中...
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={COLUMNS.length} className="py-16 text-center text-slate-400">
+                  <td colSpan={COLUMNS.length + 1} className="py-16 text-center text-slate-400">
                     暂无数据
                   </td>
                 </tr>
@@ -212,6 +244,21 @@ function WarehouseDetailContent() {
                           )}
                         </td>
                       ))}
+                      <td className="whitespace-nowrap px-3 py-2 text-center">
+                        {row.from_file_id ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleDownloadAttachment(row.from_file_id!)}
+                            disabled={downloadingId === String(row.from_file_id)}
+                            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Download size={14} />
+                            {downloadingId === String(row.from_file_id) ? "下载中..." : "下载附件"}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-400">-</span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })

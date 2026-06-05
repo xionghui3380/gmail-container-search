@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { generateBatchNo } from "@/lib/batch-no";
+import { containerBatchNo } from "@/lib/batch-no";
 import {
   deliveryItemToCreateInput,
   parseDeliveryFileBuffer,
@@ -103,24 +103,33 @@ async function parseAndPersistAttachment(
   accessToken: string,
   refreshToken?: string,
 ): Promise<AttachmentParseResult> {
+  let buffer: Buffer;
+  try {
+    buffer = await downloadAttachmentBuffer(
+      messageId,
+      attachment.attachmentId,
+      accessToken,
+      refreshToken,
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await logStep(prisma, ctx, "download_attachment", "failed", message);
+    return { itemCount: 0, warnings: [message], failed: true };
+  }
+
   const attachmentRow = await prisma.attachments.create({
     data: {
       container_id: ctx.containerId,
       container_no: ctx.containerNo,
       batch_no: ctx.batchNo,
       attachment_name: attachment.filename,
+      file_content: buffer,
       parse_status: "parsing",
     },
   });
 
   let parsed: DeliveryParseResult;
   try {
-    const buffer = await downloadAttachmentBuffer(
-      messageId,
-      attachment.attachmentId,
-      accessToken,
-      refreshToken,
-    );
     parsed = await parseDeliveryFileBuffer(buffer, attachment.filename);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -160,6 +169,7 @@ async function parseAndPersistAttachment(
             item,
             {
               attachment_id: attachmentRow.id,
+              from_file_id: attachmentRow.id,
               container_id: ctx.containerId,
               batch_no: ctx.batchNo,
             },
@@ -205,12 +215,10 @@ export async function parseOrderFromGmail(
   if (!order) throw new Error("订单不存在");
 
   const containerNo = order.container_no.trim().toUpperCase();
-  const batchNo = generateBatchNo(containerNo);
 
   const container = await prisma.containers.create({
     data: {
       order_id: order.id,
-      batch_no: batchNo,
       container_no: containerNo,
       operation_type: order.operation_type,
       customer: order.customer,
@@ -219,6 +227,12 @@ export async function parseOrderFromGmail(
       pickup_date: order.pickup_date,
       parse_status: "parsing",
     },
+  });
+
+  const batchNo = containerBatchNo(container.id);
+  await prisma.containers.update({
+    where: { id: container.id },
+    data: { batch_no: batchNo },
   });
 
   const ctx: ParseContext = {

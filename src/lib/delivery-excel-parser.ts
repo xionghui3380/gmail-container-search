@@ -283,6 +283,7 @@ export function deliveryItemToCreateInput(
   item: DeliveryItemParsed,
   meta?: {
     attachment_id?: number;
+    from_file_id?: number;
     container_id?: number;
     batch_no?: string;
   },
@@ -290,6 +291,7 @@ export function deliveryItemToCreateInput(
   return {
     container_no: item.container_no,
     attachment_id: meta?.attachment_id,
+    from_file_id: meta?.from_file_id ?? meta?.attachment_id,
     container_id: meta?.container_id,
     batch_no: meta?.batch_no,
     customer_code: item.customer_code,
