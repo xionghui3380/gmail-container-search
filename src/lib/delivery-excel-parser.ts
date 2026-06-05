@@ -43,6 +43,7 @@ const FIELD_ALIASES: Record<string, DeliveryFieldKey> = {
   柜号: "container_no",
   containerno: "container_no",
   "客户代码/唛头": "customer_code",
+  "so/客户代码/唛头": "customer_code",
   客户代码: "customer_code",
   唛头: "customer_code",
   so: "customer_code",
@@ -251,10 +252,14 @@ function parseDeliveryMatrix(
     if (!row.container_no && defaultContainerNo) {
       row.container_no = defaultContainerNo.toUpperCase();
     }
-    if (!row.container_no) continue;
+    if (!row.container_no) {
+      row.container_no = "";
+      row.warnings.push("柜号为空");
+      warnings.push(`第 ${i + 1} 行：柜号为空`);
+    }
 
     if (!row.fba_id && !row.reference_id && !row.warehouse_code && row.carton_count === null) {
-      continue;
+      if (row.container_no) continue;
     }
 
     if (!row.warehouse_code) {

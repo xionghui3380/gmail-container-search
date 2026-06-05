@@ -78,11 +78,11 @@ async function saveParsedDeliveryData(
 
   await tx.delivery_items.createMany({
     data: parsed.items.map((item) =>
-      deliveryItemToCreateInput({ ...item, container_no: normalizedNo }),
+      deliveryItemToCreateInput(item),
     ),
   });
 
-  await rebuildWarehouseSummaries(tx, normalizedNo);
+  await rebuildWarehouseSummaries(tx, [normalizedNo]);
 
   await updateCargoParseFields(tx, normalizedNo, {
     parse_status: parseStatus,
@@ -527,11 +527,15 @@ export async function getContainerParseResult(containerNo: string) {
  */
 async function rebuildWarehouseSummaries(
   tx: Prisma.TransactionClient,
-  containerNo: string,
+  containerNos: string[],
 ) {
+  const where = containerNos.length > 0
+    ? { container_no: { in: containerNos }, is_history: false }
+    : { container_no: "", is_history: false };
+
   const grouped = await tx.delivery_items.groupBy({
-    by: ["warehouse_code"],
-    where: { container_no: containerNo, is_history: false },
+    by: ["container_no", "warehouse_code"],
+    where,
     _count: { id: true },
     _sum: { carton_count: true, weight: true, cbm: true },
   });
@@ -540,7 +544,7 @@ async function rebuildWarehouseSummaries(
     const code = row.warehouse_code ?? "";
     await tx.warehouse_summaries.create({
       data: {
-        container_no: containerNo,
+        container_no: row.container_no ?? "",
         warehouse_code: code,
         total_cartons: row._sum.carton_count ?? 0,
         item_count: row._count.id,

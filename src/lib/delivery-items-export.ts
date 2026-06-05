@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 
 export type DeliveryItemExportRow = {
   container_no?: string | null;
+  customer_code?: string | null;
   fba_id?: string | null;
   reference_id?: string | null;
   cbm?: unknown;
@@ -9,25 +10,42 @@ export type DeliveryItemExportRow = {
   carton_count?: number | null;
   warehouse_code?: string | null;
   delivery_method?: string | null;
+  customer_note?: string | null;
+  actual_carton_count?: number | null;
+  pallet_count?: number | null;
+  warehouse_note?: string | null;
   warning?: string | null;
 };
 
-/** 页面展示与导出共用的明细列（不含客户代码、备注、实际箱数等） */
-export const DELIVERY_ITEM_COLUMNS = [
-  { key: "fba_id", label: "FBA" },
-  { key: "reference_id", label: "Reference" },
-  { key: "warehouse_code", label: "仓库" },
+/** 导出时使用的列，与源文件模板格式一致 */
+export const DELIVERY_EXPORT_COLUMNS = [
+  { key: "container_no", label: "柜号" },
+  { key: "customer_code", label: "SO/客户代码/唛头" },
+  { key: "fba_id", label: "FBA ID" },
+  { key: "reference_id", label: "Reference ID" },
+  { key: "cbm", label: "体积" },
+  { key: "weight", label: "重量" },
   { key: "carton_count", label: "箱数" },
-  { key: "cbm", label: "CBM" },
+  { key: "warehouse_code", label: "仓库代码" },
+  { key: "delivery_method", label: "派送方式" },
+  { key: "customer_note", label: "客人备注" },
+  { key: "actual_carton_count", label: "实际箱数" },
+  { key: "pallet_count", label: "打板数量" },
+  { key: "warehouse_note", label: "仓库备注" },
+] as const;
+
+/** 页面展示用的精简列（不含客人备注、实际箱数等） */
+export const DELIVERY_ITEM_COLUMNS = [
+  { key: "container_no", label: "柜号" },
+  { key: "customer_code", label: "客户代码" },
+  { key: "fba_id", label: "FBA ID" },
+  { key: "reference_id", label: "PO ID" },
+  { key: "warehouse_code", label: "仓库代码" },
+  { key: "carton_count", label: "箱数" },
+  { key: "cbm", label: "体积" },
   { key: "weight", label: "重量" },
   { key: "delivery_method", label: "派送方式" },
   { key: "warning", label: "警告" },
-] as const;
-
-/** 导出时在明细列前加柜号 */
-export const DELIVERY_EXPORT_COLUMNS = [
-  { key: "container_no", label: "柜号" },
-  ...DELIVERY_ITEM_COLUMNS,
 ] as const;
 
 export type DeliveryExportFormat = "csv" | "xlsx";

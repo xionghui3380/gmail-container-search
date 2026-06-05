@@ -157,7 +157,7 @@ async function parseAndPersistAttachment(
       await tx.delivery_items.createMany({
         data: parsed.items.map((item) =>
           deliveryItemToCreateInput(
-            { ...item, container_no: ctx.containerNo },
+            item,
             {
               attachment_id: attachmentRow.id,
               container_id: ctx.containerId,
@@ -166,7 +166,7 @@ async function parseAndPersistAttachment(
           ),
         ),
       });
-      await rebuildWarehouseSummaries(tx, ctx.containerNo);
+      await rebuildWarehouseSummaries(tx, containerNos);
       await tx.attachments.update({
         where: { id: attachmentRow.id },
         data: { parse_status: parseStatus, error_message: warnMsg },
@@ -397,11 +397,15 @@ export async function reparseContainerFromGmail(
 
 async function rebuildWarehouseSummaries(
   tx: Prisma.TransactionClient,
-  containerNo: string,
+  containerNos: string[],
 ) {
+  const where = containerNos.length > 0
+    ? { container_no: { in: containerNos }, is_history: false }
+    : { container_no: "", is_history: false };
+
   const grouped = await tx.delivery_items.groupBy({
-    by: ["warehouse_code"],
-    where: { container_no: containerNo, is_history: false },
+    by: ["container_no", "warehouse_code"],
+    where,
     _count: { id: true },
     _sum: { carton_count: true },
   });
@@ -410,7 +414,7 @@ async function rebuildWarehouseSummaries(
     const code = row.warehouse_code ?? "";
     await tx.warehouse_summaries.create({
       data: {
-        container_no: containerNo,
+        container_no: row.container_no ?? "",
         warehouse_code: code,
         total_cartons: row._sum.carton_count ?? 0,
         item_count: row._count.id,

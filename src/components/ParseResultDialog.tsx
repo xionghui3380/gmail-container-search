@@ -9,6 +9,8 @@ import { DELIVERY_ITEM_COLUMNS } from "@/lib/delivery-items-export";
 type DeliveryItem = {
   id: string;
   attachment_id?: string | null;
+  container_no?: string | null;
+  customer_code?: string | null;
   fba_id?: string | null;
   reference_id?: string | null;
   cbm?: string | null;
@@ -214,14 +216,13 @@ export default function ParseResultDialog({ open, onClose, containerId }: ParseR
                                 <tr key={row.id} className={`border-t border-slate-100 ${row.warning ? "bg-amber-50" : ""}`}>
                                   {ITEM_COLUMNS.map((col) => (
                                     <td key={col.key} className="whitespace-nowrap px-3 py-2">
-                                      {row[col.key as keyof DeliveryItem] ?? "-"}
+                                      {col.key === "warning" && row.warning ? (
+                                        <span className="text-xs text-amber-700">{row.warning}</span>
+                                      ) : (
+                                        (row[col.key as keyof DeliveryItem] ?? "-")
+                                      )}
                                     </td>
                                   ))}
-                                  {row.warning && (
-                                    <td className="whitespace-nowrap px-3 py-2 text-xs text-amber-700">
-                                      {row.warning}
-                                    </td>
-                                  )}
                                 </tr>
                               ))
                             )}
