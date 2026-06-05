@@ -1,17 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { error } from "@/lib/api-response";
+import {
+  encodeContentDisposition,
+  exportDeliveryItemsToCsv,
+} from "@/lib/delivery-items-export";
 import { requireUser } from "@/lib/require-user";
 
 type Params = { params: { containerNo: string } };
-
-function csvEscape(value: unknown) {
-  const text = value == null ? "" : String(value);
-  if (text.includes(",") || text.includes('"') || text.includes("\n")) {
-    return `"${text.replace(/"/g, '""')}"`;
-  }
-  return text;
-}
 
 export async function GET(request: NextRequest, { params }: Params) {
   const user = await requireUser(request);
@@ -25,31 +21,11 @@ export async function GET(request: NextRequest, { params }: Params) {
       where: { container_no: containerNo },
       orderBy: [{ warehouse_code: "asc" }, { id: "asc" }],
     });
-    const header = [
-      "container_no",
-      "customer_code",
-      "fba_id",
-      "reference_id",
-      "cbm",
-      "weight",
-      "carton_count",
-      "warehouse_code",
-      "delivery_method",
-      "customer_note",
-      "actual_carton_count",
-      "pallet_count",
-      "warehouse_note",
-    ];
-    const lines = [
-      header.join(","),
-      ...items.map((row) =>
-        header.map((key) => csvEscape(row[key as keyof typeof row])).join(","),
-      ),
-    ];
-    return new NextResponse(lines.join("\n"), {
+    const body = exportDeliveryItemsToCsv(items);
+    return new NextResponse(body, {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="${containerNo}-items.csv"`,
+        "Content-Disposition": encodeContentDisposition(`${containerNo}-items.csv`),
       },
     });
   }
@@ -62,13 +38,17 @@ export async function GET(request: NextRequest, { params }: Params) {
   const lines = [
     header.join(","),
     ...summaries.map((row) =>
-      header.map((key) => csvEscape(row[key as keyof typeof row])).join(","),
+      header.map((key) => {
+        const text = row[key as keyof typeof row] == null ? "" : String(row[key as keyof typeof row]);
+        if (text.includes(",") || text.includes('"')) return `"${text.replace(/"/g, '""')}"`;
+        return text;
+      }).join(","),
     ),
   ];
-  return new NextResponse(lines.join("\n"), {
+  return new NextResponse(`\uFEFF${lines.join("\n")}`, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${containerNo}-summary.csv"`,
+      "Content-Disposition": encodeContentDisposition(`${containerNo}-summary.csv`),
     },
   });
 }

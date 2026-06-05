@@ -175,6 +175,7 @@ export async function parseOrderSheetBuffer(buffer: Buffer): Promise<OrderSheetI
     const containerNo = parsed.container_no?.trim().toUpperCase();
     if (!containerNo) {
       result.skipped += 1;
+      result.errors.push({ row: i + 1, message: "柜号为空" });
       continue;
     }
 

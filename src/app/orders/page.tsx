@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
 import {
   ArrowDown,
@@ -65,11 +65,18 @@ const emptyRowForm = (): RowForm => ({
 const inputClass =
   "h-8 w-full min-w-[72px] rounded border border-slate-200 px-2 text-sm outline-none focus:border-blue-400 whitespace-nowrap";
 
+const containerNoInvalidClass =
+  "border-red-400 bg-red-50 text-red-600 placeholder:text-red-300 focus:border-red-500 focus:ring-1 focus:ring-red-400";
+
+function isContainerNoEmpty(value: string) {
+  return !value.trim();
+}
+
 const cellNowrap = "whitespace-nowrap px-2 py-3";
 const stickyActionTh =
-  "sticky right-0 z-30 min-w-[5rem] whitespace-nowrap bg-slate-50 px-2 py-3 text-left font-medium shadow-[-6px_0_8px_-4px_rgba(15,23,42,0.12)]";
+  "sticky right-0 z-30 min-w-[7.5rem] whitespace-nowrap bg-slate-50 px-2 py-3 text-left font-medium shadow-[-6px_0_8px_-4px_rgba(15,23,42,0.12)]";
 const stickyActionTdBase =
-  "sticky right-0 z-20 min-w-[5rem] whitespace-nowrap px-2 py-3 shadow-[-6px_0_8px_-4px_rgba(15,23,42,0.12)]";
+  "sticky right-0 z-20 min-w-[7.5rem] whitespace-nowrap px-2 py-3 shadow-[-6px_0_8px_-4px_rgba(15,23,42,0.12)]";
 
 function toDateInputValue(value?: string | null) {
   if (!value) return "";
@@ -112,6 +119,13 @@ function validateRowForm(form: RowForm) {
   return null;
 }
 
+function isRowFormUnchanged(row: OrderRow, draft: RowForm) {
+  const baseline = rowToForm(row);
+  return (Object.keys(baseline) as (keyof RowForm)[]).every(
+    (key) => baseline[key] === draft[key],
+  );
+}
+
 function renderReadOnlyCell(row: OrderRow, key: OrderColumnKey) {
   if (isOrderDateColumn(key)) {
     return formatCellDate(row[key]);
@@ -124,14 +138,20 @@ function renderEditableInput(
   key: OrderColumnKey,
   form: RowForm,
   onChange: <K extends keyof RowForm>(field: K, value: RowForm[K]) => void,
+  options?: { onBlur?: () => void; disabled?: boolean },
 ) {
+  const onBlur = options?.onBlur;
+  const disabled = options?.disabled ?? false;
+
   if (key === "container_no") {
     return (
       <input
         value={form.container_no}
         onChange={(e) => onChange("container_no", e.target.value.toUpperCase())}
+        onBlur={onBlur}
+        disabled={disabled}
         placeholder="柜号"
-        className={inputClass}
+        className={`${inputClass} ${isContainerNoEmpty(form.container_no) ? containerNoInvalidClass : ""}`}
       />
     );
   }
@@ -140,6 +160,8 @@ function renderEditableInput(
       <select
         value={form.operation_type}
         onChange={(e) => onChange("operation_type", e.target.value)}
+        onBlur={onBlur}
+        disabled={disabled}
         className={inputClass}
       >
         <option value="">-</option>
@@ -154,6 +176,8 @@ function renderEditableInput(
         type="date"
         value={form[key]}
         onChange={(e) => onChange(key, e.target.value)}
+        onBlur={onBlur}
+        disabled={disabled}
         className={inputClass}
       />
     );
@@ -162,6 +186,8 @@ function renderEditableInput(
     <input
       value={form[key]}
       onChange={(e) => onChange(key, e.target.value)}
+      onBlur={onBlur}
+      disabled={disabled}
       className={inputClass}
     />
   );
@@ -204,15 +230,12 @@ type DataRowProps = {
   selected: Set<string>;
   visibleColumns: OrderDataColumn[];
   getWidth: (key: OrderColumnKey) => number;
-  isEditing: boolean;
-  editForm: RowForm;
+  rowDraft: RowForm;
   saving: boolean;
   onToggleSelect: (id: string) => void;
   onDelete: (id: string) => void;
-  onStartEdit: () => void;
-  onEditChange: <K extends keyof RowForm>(field: K, value: RowForm[K]) => void;
-  onSaveEdit: () => void;
-  onCancelEdit: () => void;
+  onDraftChange: <K extends keyof RowForm>(field: K, value: RowForm[K]) => void;
+  onCellBlur: () => void;
   onSearch?: () => void;
   searching?: boolean;
 };
@@ -223,30 +246,19 @@ function DataRow({
   selected,
   visibleColumns,
   getWidth,
-  isEditing,
-  editForm,
+  rowDraft,
   saving,
   onToggleSelect,
   onDelete,
-  onStartEdit,
-  onEditChange,
-  onSaveEdit,
-  onCancelEdit,
+  onDraftChange,
+  onCellBlur,
   onSearch,
   searching,
 }: DataRowProps) {
   return (
-    <tr
-      onDoubleClick={() => {
-        if (canWrite && !isEditing) onStartEdit();
-      }}
-      className={`group border-b border-slate-100 ${
-        isEditing ? "bg-amber-50/70" : "hover:bg-slate-50/80"
-      }`}
-      title={canWrite && !isEditing ? "双击编辑" : undefined}
-    >
+    <tr className="group border-b border-slate-100 hover:bg-slate-50/80">
       {canWrite && (
-        <td className={cellNowrap} onDoubleClick={(e) => e.stopPropagation()}>
+        <td className={cellNowrap}>
           <input
             type="checkbox"
             checked={selected.has(row.id)}
@@ -257,46 +269,44 @@ function DataRow({
       )}
       {visibleColumns.map((column) => (
         <td
-          key={`${isEditing ? "edit" : "read"}-${row.id}-${column.key}`}
+          key={`${row.id}-${column.key}`}
           style={{ minWidth: getWidth(column.key), width: getWidth(column.key) }}
           className={`${cellNowrap} text-slate-700`}
         >
-          {isEditing
-            ? renderEditableInput(column.key, editForm, onEditChange)
-            : renderReadOnlyCell(row, column.key)}
+          {canWrite ? (
+            renderEditableInput(column.key, rowDraft, onDraftChange, {
+              onBlur: onCellBlur,
+              disabled: saving,
+            })
+          ) : (
+            renderReadOnlyCell(row, column.key)
+          )}
         </td>
       ))}
       {canWrite && (
-        <td
-          className={`${stickyActionTdBase} ${
-            isEditing ? "bg-amber-50" : "bg-white group-hover:bg-slate-50/80"
-          }`}
-          onDoubleClick={(e) => e.stopPropagation()}
-        >
-          {isEditing ? (
-            <ActionButtons saving={saving} onSave={onSaveEdit} onCancel={onCancelEdit} />
-          ) : (
-            <div className="flex items-center gap-2">
-              {onSearch && (
-                <button
-                  type="button"
-                  onClick={onSearch}
-                  disabled={searching}
-                  className="text-blue-600 hover:text-blue-700 hover:underline disabled:opacity-50"
-                >
-                  <Mail size={12} className="mr-0.5 inline" />
-                  {searching ? "检索中..." : "检索"}
-                </button>
-              )}
+        <td className={`${stickyActionTdBase} bg-white group-hover:bg-slate-50/80`}>
+          <div className="flex items-center gap-2 whitespace-nowrap">
+            {onSearch && (
               <button
                 type="button"
-                onClick={() => onDelete(row.id)}
-                className="text-red-500 hover:text-red-700 hover:underline"
+                onClick={onSearch}
+                disabled={searching || saving}
+                className="text-blue-600 hover:text-blue-700 hover:underline disabled:opacity-50"
               >
-                删除
+                <Mail size={12} className="mr-0.5 inline" />
+                {searching ? "检索中..." : "检索"}
               </button>
-            </div>
-          )}
+            )}
+            {onSearch && <span className="text-slate-300">|</span>}
+            <button
+              type="button"
+              onClick={() => onDelete(row.id)}
+              disabled={saving}
+              className="text-red-500 hover:text-red-700 hover:underline disabled:opacity-50"
+            >
+              删除
+            </button>
+          </div>
         </td>
       )}
     </tr>
@@ -315,11 +325,19 @@ export default function OrdersPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isAddingRow, setIsAddingRow] = useState(false);
   const [newRow, setNewRow] = useState<RowForm>(emptyRowForm);
-  const [editingRowId, setEditingRowId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<RowForm>(emptyRowForm);
+  const [rowDrafts, setRowDrafts] = useState<Record<string, RowForm>>({});
+  const [savingRowId, setSavingRowId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [searchingId, setSearchingId] = useState<string | null>(null);
   const [sortState, setSortState] = useState<SortState>({ column: null, order: "desc" });
+
+  const saveTimerRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const pendingSaveRef = useRef<Set<string>>(new Set());
+  const rowsRef = useRef(rows);
+  const rowDraftsRef = useRef(rowDrafts);
+
+  rowsRef.current = rows;
+  rowDraftsRef.current = rowDrafts;
 
   const {
     visibleColumns,
@@ -380,6 +398,17 @@ export default function OrdersPage() {
     loadRows();
   }, [loadRows]);
 
+  useEffect(() => {
+    setRowDrafts(Object.fromEntries(rows.map((row) => [row.id, rowToForm(row)])));
+  }, [rows]);
+
+  useEffect(() => {
+    const timers = saveTimerRef.current;
+    return () => {
+      Object.values(timers).forEach(clearTimeout);
+    };
+  }, []);
+
   function handleSortClick(key: OrderColumnKey) {
     setPage(1);
     setSortState((prev) => {
@@ -396,7 +425,6 @@ export default function OrdersPage() {
   }
 
   function handleStartAdd() {
-    if (editingRowId) return;
     setNewRow(emptyRowForm());
     setIsAddingRow(true);
   }
@@ -406,42 +434,82 @@ export default function OrdersPage() {
     setNewRow(emptyRowForm());
   }
 
-  function handleStartEdit(row: OrderRow) {
-    if (isAddingRow || editingRowId) return;
-    setEditingRowId(row.id);
-    setEditForm(rowToForm(row));
+  function updateRowDraft<K extends keyof RowForm>(
+    rowId: string,
+    field: K,
+    value: RowForm[K],
+  ) {
+    setRowDrafts((prev) => ({
+      ...prev,
+      [rowId]: { ...(prev[rowId] ?? emptyRowForm()), [field]: value },
+    }));
   }
 
-  function handleCancelEdit() {
-    setEditingRowId(null);
-    setEditForm(emptyRowForm());
+  function handleCellBlur(rowId: string) {
+    if (!canWrite) return;
+
+    clearTimeout(saveTimerRef.current[rowId]);
+    saveTimerRef.current[rowId] = setTimeout(() => {
+      void persistRowDraft(rowId);
+    }, 400);
   }
 
-  async function handleSaveEdit() {
-    if (!editingRowId) return;
-    const message = validateRowForm(editForm);
-    if (message) {
-      toast.error(message);
+  async function persistRowDraft(rowId: string) {
+    if (savingRowId === rowId) {
+      pendingSaveRef.current.add(rowId);
       return;
     }
-    setSaving(true);
+
+    const row = rowsRef.current.find((item) => item.id === rowId);
+    const draft = rowDraftsRef.current[rowId];
+    if (!row || !draft || isRowFormUnchanged(row, draft)) return;
+
+    const message = validateRowForm(draft);
+    if (message) {
+      toast.error(message);
+      setRowDrafts((prev) => ({ ...prev, [rowId]: rowToForm(row) }));
+      return;
+    }
+
+    setSavingRowId(rowId);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
+
     try {
-      const res = await fetch(`/api/v1/orders/${editingRowId}`, {
+      const res = await fetch(`/api/v1/orders/${rowId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildPayload(editForm)),
+        body: JSON.stringify(buildPayload(draft)),
+        signal: controller.signal,
       });
       const json = await res.json();
       if (!res.ok) {
         toast.error(json.message ?? "保存失败");
         if (json.errors?.[0]?.message) toast.error(json.errors[0].message);
+        setRowDrafts((prev) => ({ ...prev, [rowId]: rowToForm(row) }));
         return;
       }
-      toast.success("保存成功");
-      handleCancelEdit();
-      loadRows();
+      setRows((prev) =>
+        prev.map((item) => (item.id === rowId ? { ...item, ...json.data } : item)),
+      );
+      setRowDrafts((prev) => ({
+        ...prev,
+        [rowId]: rowToForm({ ...row, ...json.data } as OrderRow),
+      }));
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        toast.error("保存超时，请检查网络或数据库连接后重试");
+      } else {
+        toast.error("保存失败，请稍后重试");
+      }
+      setRowDrafts((prev) => ({ ...prev, [rowId]: rowToForm(row) }));
     } finally {
-      setSaving(false);
+      clearTimeout(timeoutId);
+      setSavingRowId(null);
+      if (pendingSaveRef.current.has(rowId)) {
+        pendingSaveRef.current.delete(rowId);
+        void persistRowDraft(rowId);
+      }
     }
   }
 
@@ -595,7 +663,7 @@ export default function OrdersPage() {
             <button
               type="button"
               onClick={handleStartAdd}
-              disabled={isAddingRow || Boolean(editingRowId)}
+              disabled={isAddingRow}
               className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus size={15} />
@@ -675,17 +743,12 @@ export default function OrdersPage() {
                     selected={selected}
                     visibleColumns={visibleColumns}
                     getWidth={getWidth}
-                    isEditing={editingRowId === row.id}
-                    editForm={editForm}
-                    saving={saving}
+                    rowDraft={rowDrafts[row.id] ?? rowToForm(row)}
+                    saving={savingRowId === row.id}
                     onToggleSelect={toggleSelect}
                     onDelete={handleDelete}
-                    onStartEdit={() => handleStartEdit(row)}
-                    onEditChange={(field, value) =>
-                      setEditForm((prev) => ({ ...prev, [field]: value }))
-                    }
-                    onSaveEdit={handleSaveEdit}
-                    onCancelEdit={handleCancelEdit}
+                    onDraftChange={(field, value) => updateRowDraft(row.id, field, value)}
+                    onCellBlur={() => void handleCellBlur(row.id)}
                     onSearch={() => handleSearch(row)}
                     searching={searchingId === row.id}
                   />

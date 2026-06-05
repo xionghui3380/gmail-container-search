@@ -21,11 +21,13 @@ export async function POST(request: NextRequest) {
     const result = await importOrderSheetBuffer(buffer, BigInt(user.id));
 
     return success({
+      total: result.total,
       parsed: result.imported,
       skipped: result.skipped,
       created: result.created,
       updated: result.updated,
-      errors: result.errors,
+      parseErrors: result.parseErrors,
+      persistErrors: result.persistErrors,
     });
   } catch (err) {
     console.error("[google-sheet import]", err);

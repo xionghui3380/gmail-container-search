@@ -25,6 +25,7 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  Upload,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -171,6 +172,13 @@ function rowToForm(row: ContainerRow): RowForm {
 const inputClass =
   "h-8 w-full min-w-[72px] rounded border border-slate-200 px-2 text-sm outline-none focus:border-blue-400 whitespace-nowrap";
 
+const containerNoInvalidClass =
+  "border-red-400 bg-red-50 text-red-600 placeholder:text-red-300 focus:border-red-500 focus:ring-1 focus:ring-red-400";
+
+function isContainerNoEmpty(value: string) {
+  return !value.trim();
+}
+
 const cellNowrap = "whitespace-nowrap px-2 py-3";
 const stickyActionTh =
   "sticky right-0 z-30 min-w-[7.5rem] whitespace-nowrap bg-slate-50 px-2 py-3 text-left font-medium shadow-[-6px_0_8px_-4px_rgba(15,23,42,0.12)]";
@@ -305,7 +313,7 @@ function renderEditableInput(
           onBlur={onBlur}
           disabled={disabled}
           placeholder="柜号"
-          className={inputClass}
+          className={`${inputClass} ${isContainerNoEmpty(form.container_no) ? containerNoInvalidClass : ""}`}
         />
       );
     case "container_type":
@@ -599,7 +607,9 @@ export default function ContainersPage() {
   const [reordering, setReordering] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [historyContainerId, setHistoryContainerId] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const saveTimerRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const pendingSaveRef = useRef<Set<string>>(new Set());
   const rowsRef = useRef(rows);
@@ -892,6 +902,62 @@ export default function ContainersPage() {
     loadRows();
   }
 
+  async function handleImport(file: File) {
+    setImporting(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/v1/google-sheet/import", {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.message ?? "导入失败");
+        return;
+      }
+
+      const { created = 0, updated = 0, skipped = 0, parseErrors = [], persistErrors = [] } =
+        json.data ?? {};
+
+      const errorMessages = [
+        ...parseErrors.map(
+          (item: { row: number; message: string }) => `第 ${item.row} 行：${item.message}`,
+        ),
+        ...persistErrors.map(
+          (item: { containerNo: string; message: string }) =>
+            `${item.containerNo || "未知柜号"}：${item.message}`,
+        ),
+      ];
+
+      const summary = `新增 ${created} 条，覆盖 ${updated} 条`;
+      const details: string[] = [];
+      if (skipped > 0) {
+        details.push(`跳过 ${skipped} 行（含柜号为空等异常行）`);
+      }
+      details.push(...errorMessages.slice(0, 5));
+
+      const toastOptions = {
+        description: details.length > 0 ? details.join("\n") : undefined,
+        duration: 5000,
+      };
+
+      if (errorMessages.length > 0) {
+        toast.error(`导入完成：${summary}`, toastOptions);
+      } else if (skipped > 0) {
+        toast.warning(`导入完成：${summary}`, toastOptions);
+      } else {
+        toast.success(`导入完成：${summary}`, { duration: 3000 });
+      }
+
+      setPage(1);
+      loadRows();
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
   function toggleSelect(id: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -975,6 +1041,25 @@ export default function ContainersPage() {
 
           {canWrite && (
             <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void handleImport(file);
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importing}
+                className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Upload size={15} />
+                {importing ? "导入中..." : "导入 Excel"}
+              </button>
               <button
                 onClick={handleStartAdd}
                 disabled={isAddingRow}

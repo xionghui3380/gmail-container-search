@@ -427,13 +427,12 @@ export default function ContainerDetailPage({
                     <th className="px-3 py-2 font-medium">箱数</th>
                     <th className="px-3 py-2 font-medium">仓库代码</th>
                     <th className="px-3 py-2 font-medium">派送方式</th>
-                    <th className="px-3 py-2 font-medium">客人备注</th>
                   </tr>
                 </thead>
                 <tbody>
                   {items.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
+                      <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
                         暂无明细
                       </td>
                     </tr>
@@ -452,7 +451,6 @@ export default function ContainerDetailPage({
                         <td className="px-3 py-2">{row.carton_count ?? "-"}</td>
                         <td className="px-3 py-2">{row.warehouse_code || "-"}</td>
                         <td className="px-3 py-2">{row.delivery_method || "-"}</td>
-                        <td className="px-3 py-2">{row.customer_note || "-"}</td>
                       </tr>
                     ))
                   )}

@@ -180,7 +180,15 @@ async function findCargoContainer(normalizedNo: string) {
 export async function importOrderSheetBuffer(buffer: Buffer, userId: bigint) {
   const parsed = await parseOrderSheetBuffer(buffer);
   const persist = await importOrderSheetRows(parsed.rows, userId, true);
-  return { ...parsed, ...persist };
+  return {
+    total: parsed.total,
+    imported: parsed.imported,
+    skipped: parsed.skipped,
+    created: persist.created,
+    updated: persist.updated,
+    parseErrors: parsed.errors,
+    persistErrors: persist.errors,
+  };
 }
 
 export async function parseContainerEmail(
