@@ -5,6 +5,7 @@ import {
   setCargoParseFailed,
   setCargoParsing,
   updateCargoParseFields,
+  type CargoParseFields,
 } from "@/lib/cargo-parse-fields";
 import { upsertCargoFromGoogleSheet } from "@/lib/cargo-sync";
 import {
@@ -20,9 +21,14 @@ import {
   type EmailSearchResult,
 } from "@/lib/gmail";
 import { parseOrderSheetBuffer, type OrderSheetRow } from "@/lib/order-sheet-import";
-import { writeParseLog } from "@/lib/parse-log";
 import { containerBatchNo } from "@/lib/batch-no";
-import { handleParseDbWriteFailure, PARSE_DB_WRITE_FAILURE_MESSAGE } from "@/lib/parse-db-error";
+import {
+  alertParseFailure,
+  handleParseDbWriteFailure,
+  PARSE_DB_WRITE_FAILURE_MESSAGE,
+} from "@/lib/parse-db-error";
+import { assertContainerNotParsing } from "@/lib/parse-lock";
+import { safeWriteParseLog } from "@/lib/parse-log";
 import { containerCreateSchema } from "@/lib/validators";
 
 type ParseEmailResult = {
@@ -48,27 +54,15 @@ type EmailMeta = {
   attachmentName: string;
 };
 
-async function saveParsedDeliveryData(
+/** 业务事务内只写业务表，不写 parse_logs */
+async function persistDeliveryBusinessData(
   tx: Prisma.TransactionClient,
   containerId: number,
   normalizedNo: string,
   parsed: DeliveryParseResult,
-  _userId: bigint,
   emailMeta: EmailMeta,
   parseStatus: parse_status,
-  searchLogMessage?: string,
 ) {
-  if (searchLogMessage) {
-    await writeParseLog(tx, normalizedNo, "search_email", "success", searchLogMessage);
-  }
-  await writeParseLog(
-    tx,
-    normalizedNo,
-    "parse_excel",
-    parsed.warnings.length > 0 ? "warning" : "success",
-    `解析 ${parsed.items.length} 条明细，表头第 ${parsed.headerRow} 行`,
-  );
-
   await tx.delivery_items.updateMany({
     where: { container_no: normalizedNo, is_history: false },
     data: { is_history: true },
@@ -100,56 +94,184 @@ async function saveParsedDeliveryData(
     email_date: emailMeta.date ? new Date(emailMeta.date) : null,
   });
 
-  await writeParseLog(tx, normalizedNo, "save_database", "success", "数据入库完成");
+  return batchNo;
+}
+
+async function writeParseLogsAfterSuccess(
+  normalizedNo: string,
+  containerId: number,
+  batchNo: string,
+  parsed: DeliveryParseResult,
+  searchLogMessage?: string,
+  extraLogs?: Array<{ step: string; status: "success" | "failed" | "warning"; message: string }>,
+) {
+  if (searchLogMessage) {
+    await safeWriteParseLog({
+      container_no: normalizedNo,
+      container_id: containerId,
+      batch_no: batchNo,
+      step: "search_email",
+      status: "success",
+      message: searchLogMessage,
+    });
+  }
+
+  for (const log of extraLogs ?? []) {
+    await safeWriteParseLog({
+      container_no: normalizedNo,
+      container_id: containerId,
+      batch_no: batchNo,
+      step: log.step,
+      status: log.status,
+      message: log.message,
+    });
+  }
+
+  await safeWriteParseLog({
+    container_no: normalizedNo,
+    container_id: containerId,
+    batch_no: batchNo,
+    step: "parse_excel",
+    status: parsed.warnings.length > 0 ? "warning" : "success",
+    message: `解析 ${parsed.items.length} 条明细，表头第 ${parsed.headerRow} 行`,
+  });
+
+  await safeWriteParseLog({
+    container_no: normalizedNo,
+    container_id: containerId,
+    batch_no: batchNo,
+    step: "save_database",
+    status: "success",
+    message: "数据入库完成",
+  });
 }
 
 async function saveParsedDeliveryDataInTransaction(
   containerId: number,
   normalizedNo: string,
   parsed: DeliveryParseResult,
-  userId: bigint,
   emailMeta: EmailMeta,
   parseStatus: parse_status,
   searchLogMessage?: string,
-  beforeSave?: (tx: Prisma.TransactionClient) => Promise<void>,
+  extraLogs?: Array<{ step: string; status: "success" | "failed" | "warning"; message: string }>,
 ) {
+  const batchNo = containerBatchNo(containerId);
   try {
     await prisma.$transaction(
       async (tx) => {
-        if (beforeSave) await beforeSave(tx);
-        await saveParsedDeliveryData(
+        await persistDeliveryBusinessData(
           tx,
           containerId,
-        normalizedNo,
-        parsed,
-        userId,
-        emailMeta,
-        parseStatus,
-        searchLogMessage,
-      );
-    },
-    { maxWait: 10000, timeout: 60000 },
-  );  } catch (err) {
+          normalizedNo,
+          parsed,
+          emailMeta,
+          parseStatus,
+        );
+      },
+      { maxWait: 10000, timeout: 60000 },
+    );
+
+    await writeParseLogsAfterSuccess(
+      normalizedNo,
+      containerId,
+      batchNo,
+      parsed,
+      searchLogMessage,
+      extraLogs,
+    );
+  } catch (err) {
     const message = await handleParseDbWriteFailure(
-      { container_no: normalizedNo, container_id: containerId },
+      {
+        container_no: normalizedNo,
+        container_id: containerId,
+        batch_no: batchNo,
+        email_message_id: emailMeta.messageId,
+        attachment_name: emailMeta.attachmentName,
+      },
       err,
     );
     throw new Error(message);
   }
 }
 
+async function recordCargoParseFailure(
+  normalizedNo: string,
+  containerId: number | undefined,
+  step: string,
+  message: string,
+  extra?: CargoParseFields,
+) {
+  const ok = await safeWriteParseLog({
+    container_no: normalizedNo,
+    container_id: containerId ?? null,
+    step,
+    status: "failed",
+    message,
+  });
+  if (!ok) {
+    alertParseFailure({
+      kind: "cargo_parse_log_failed",
+      container_no: normalizedNo,
+      step,
+      message,
+    });
+  }
+
+  try {
+    await setCargoParseFailed(prisma, normalizedNo, message, extra);
+  } catch (updateErr) {
+    alertParseFailure({
+      kind: "cargo_status_update_failed",
+      container_no: normalizedNo,
+      step,
+      message,
+      updateErr: String(updateErr),
+    });
+  }
+}
+
 async function handleParsePipelineFailure(
   normalizedNo: string,
+  containerId: number | undefined,
   err: unknown,
+  emailMeta?: Partial<EmailMeta>,
 ): Promise<never> {
   const message = err instanceof Error ? err.message : String(err);
   const isDbFailure = message.startsWith(PARSE_DB_WRITE_FAILURE_MESSAGE);
-  await prisma.$transaction(async (tx) => {
-    if (!isDbFailure) {
-      await writeParseLog(tx, normalizedNo, "parse_pipeline", "failed", message);
+
+  if (!isDbFailure) {
+    const ok = await safeWriteParseLog({
+      container_no: normalizedNo,
+      container_id: containerId ?? null,
+      step: "parse_pipeline",
+      status: "failed",
+      message,
+    });
+    if (!ok) {
+      alertParseFailure({
+        kind: "pipeline_log_failed",
+        container_no: normalizedNo,
+        message,
+      });
     }
-    await setCargoParseFailed(tx, normalizedNo, message);
-  });
+  }
+
+  try {
+    await setCargoParseFailed(prisma, normalizedNo, message, {
+      email_message_id: emailMeta?.messageId ?? null,
+      email_subject: emailMeta?.subject ?? null,
+      email_from: emailMeta?.from ?? null,
+      email_date: emailMeta?.date ? new Date(emailMeta.date) : null,
+    });
+  } catch (updateErr) {
+    alertParseFailure({
+      kind: "pipeline_status_update_failed",
+      container_no: normalizedNo,
+      message,
+      updateErr: String(updateErr),
+    });
+  }
+
   throw err;
 }
 
@@ -252,14 +374,17 @@ export async function parseContainerEmail(
   refreshToken?: string,
 ): Promise<ParseEmailResult> {
   const normalizedNo = containerNo.trim().toUpperCase();
+  void userId;
 
   const container = await findCargoContainer(normalizedNo);
   if (!container) {
     throw new Error(`柜号 ${normalizedNo} 不存在，请先在 google_sheet 录入订单`);
   }
 
+  await assertContainerNotParsing(normalizedNo);
   await setCargoParsing(normalizedNo);
 
+  let buffer: Buffer | null = null;
   try {
     const emails = await searchEmailsByContainer(
       normalizedNo,
@@ -269,10 +394,7 @@ export async function parseContainerEmail(
     );
 
     if (emails.length === 0) {
-      await prisma.$transaction(async (tx) => {
-        await writeParseLog(tx, normalizedNo, "search_email", "failed", "未找到相关邮件");
-        await setCargoParseFailed(tx, normalizedNo, "未找到相关邮件");
-      });
+      await recordCargoParseFailure(normalizedNo, container.id, "search_email", "未找到相关邮件");
       return {
         containerNo: normalizedNo,
         parseStatus: "failed",
@@ -289,14 +411,11 @@ export async function parseContainerEmail(
     const excelAttachment = detail.attachments.find((a) => a.isExcel);
 
     if (!excelAttachment) {
-      await prisma.$transaction(async (tx) => {
-        await writeParseLog(tx, normalizedNo, "download_attachment", "failed", "邮件无 Excel 附件");
-        await setCargoParseFailed(tx, normalizedNo, "邮件无 Excel 附件", {
-          email_message_id: detail.id,
-          email_subject: detail.subject,
-          email_from: detail.from,
-          email_date: detail.date ? new Date(detail.date) : null,
-        });
+      await recordCargoParseFailure(normalizedNo, container.id, "download_attachment", "邮件无 Excel 附件", {
+        email_message_id: detail.id,
+        email_subject: detail.subject,
+        email_from: detail.from,
+        email_date: detail.date ? new Date(detail.date) : null,
       });
       return {
         containerNo: normalizedNo,
@@ -310,7 +429,7 @@ export async function parseContainerEmail(
       };
     }
 
-    const buffer = await downloadAttachmentBuffer(
+    buffer = await downloadAttachmentBuffer(
       best.id,
       excelAttachment.attachmentId,
       accessToken,
@@ -319,10 +438,7 @@ export async function parseContainerEmail(
     const parsed = await parseDeliveryExcelBuffer(buffer);
 
     if (parsed.items.length === 0) {
-      await prisma.$transaction(async (tx) => {
-        await writeParseLog(tx, normalizedNo, "parse_excel", "failed", "附件中无有效明细行");
-        await setCargoParseFailed(tx, normalizedNo, "附件中无有效明细行");
-      });
+      await recordCargoParseFailure(normalizedNo, container.id, "parse_excel", "附件中无有效明细行");
       return {
         containerNo: normalizedNo,
         parseStatus: "failed",
@@ -338,18 +454,19 @@ export async function parseContainerEmail(
     const parseStatus: parse_status =
       parsed.warnings.length > 0 ? "partial_success" : "success";
 
+    const emailMeta: EmailMeta = {
+      messageId: detail.id,
+      subject: detail.subject,
+      from: detail.from,
+      date: detail.date,
+      attachmentName: excelAttachment.filename,
+    };
+
     await saveParsedDeliveryDataInTransaction(
       container.id,
       normalizedNo,
       parsed,
-      userId,
-      {
-        messageId: detail.id,
-        subject: detail.subject,
-        from: detail.from,
-        date: detail.date,
-        attachmentName: excelAttachment.filename,
-      },
+      emailMeta,
       parseStatus,
       `找到 ${emails.length} 封邮件，选用 ${best.subject || best.id}`,
     );
@@ -364,7 +481,9 @@ export async function parseContainerEmail(
       warnings: parsed.warnings,
     };
   } catch (err) {
-    return handleParsePipelineFailure(normalizedNo, err);
+    return handleParsePipelineFailure(normalizedNo, container.id, err);
+  } finally {
+    buffer = null;
   }
 }
 
@@ -379,14 +498,17 @@ export async function parseContainerAttachment(
   refreshToken?: string,
 ): Promise<ParseEmailResult> {
   const normalizedNo = containerNo.trim().toUpperCase();
+  void userId;
 
   const container = await findCargoContainer(normalizedNo);
   if (!container) {
     throw new Error(`柜号 ${normalizedNo} 不存在，请先在 google_sheet 录入订单`);
   }
 
+  await assertContainerNotParsing(normalizedNo);
   await setCargoParsing(normalizedNo);
 
+  let buffer: Buffer | null = null;
   try {
     const detail = await getEmailDetail(messageId, accessToken, refreshToken);
     const attachment = detail.attachments.find(
@@ -394,10 +516,7 @@ export async function parseContainerAttachment(
     );
 
     if (!attachment?.isExcel) {
-      await prisma.$transaction(async (tx) => {
-        await writeParseLog(tx, normalizedNo, "download_attachment", "failed", "未找到 Excel 附件");
-        await setCargoParseFailed(tx, normalizedNo, "未找到 Excel 附件");
-      });
+      await recordCargoParseFailure(normalizedNo, container.id, "download_attachment", "未找到 Excel 附件");
       return {
         containerNo: normalizedNo,
         parseStatus: "failed",
@@ -409,7 +528,7 @@ export async function parseContainerAttachment(
       };
     }
 
-    const buffer = await downloadAttachmentBuffer(
+    buffer = await downloadAttachmentBuffer(
       messageId,
       attachment.attachmentId,
       accessToken,
@@ -418,10 +537,7 @@ export async function parseContainerAttachment(
     const parsed = await parseDeliveryExcelBuffer(buffer);
 
     if (parsed.items.length === 0) {
-      await prisma.$transaction(async (tx) => {
-        await writeParseLog(tx, normalizedNo, "parse_excel", "failed", "附件中无有效明细行");
-        await setCargoParseFailed(tx, normalizedNo, "附件中无有效明细行");
-      });
+      await recordCargoParseFailure(normalizedNo, container.id, "parse_excel", "附件中无有效明细行");
       return {
         containerNo: normalizedNo,
         parseStatus: "failed",
@@ -440,7 +556,6 @@ export async function parseContainerAttachment(
       container.id,
       normalizedNo,
       parsed,
-      userId,
       {
         messageId: detail.id,
         subject: detail.subject,
@@ -461,7 +576,12 @@ export async function parseContainerAttachment(
       warnings: parsed.warnings,
     };
   } catch (err) {
-    return handleParsePipelineFailure(normalizedNo, err);
+    return handleParsePipelineFailure(normalizedNo, container.id, err, {
+      messageId,
+      attachmentName,
+    });
+  } finally {
+    buffer = null;
   }
 }
 
@@ -473,22 +593,21 @@ export async function parseContainerUploadBuffer(
   userId: bigint,
 ): Promise<ParseEmailResult> {
   const normalizedNo = containerNo.trim().toUpperCase();
+  void userId;
 
   const container = await findCargoContainer(normalizedNo);
   if (!container) {
     throw new Error(`柜号 ${normalizedNo} 不存在，请先在 google_sheet 录入订单`);
   }
 
+  await assertContainerNotParsing(normalizedNo);
   await setCargoParsing(normalizedNo);
 
   try {
     const parsed = await parseDeliveryExcelBuffer(buffer);
 
     if (parsed.items.length === 0) {
-      await prisma.$transaction(async (tx) => {
-        await writeParseLog(tx, normalizedNo, "parse_excel", "failed", "附件中无有效明细行");
-        await setCargoParseFailed(tx, normalizedNo, "附件中无有效明细行");
-      });
+      await recordCargoParseFailure(normalizedNo, container.id, "parse_excel", "附件中无有效明细行");
       return {
         containerNo: normalizedNo,
         parseStatus: "failed",
@@ -507,7 +626,6 @@ export async function parseContainerUploadBuffer(
       container.id,
       normalizedNo,
       parsed,
-      userId,
       {
         messageId: `upload:${Date.now()}`,
         subject: `本地上传：${fileName}`,
@@ -517,15 +635,7 @@ export async function parseContainerUploadBuffer(
       },
       parseStatus,
       undefined,
-      async (tx) => {
-        await writeParseLog(
-          tx,
-          normalizedNo,
-          "upload_attachment",
-          "success",
-          `本地上传文件：${fileName}`,
-        );
-      },
+      [{ step: "upload_attachment", status: "success", message: `本地上传文件：${fileName}` }],
     );
 
     return {
@@ -537,7 +647,10 @@ export async function parseContainerUploadBuffer(
       warnings: parsed.warnings,
     };
   } catch (err) {
-    return handleParsePipelineFailure(normalizedNo, err);
+    return handleParsePipelineFailure(normalizedNo, container.id, err, {
+      subject: `本地上传：${fileName}`,
+      attachmentName: fileName,
+    });
   }
 }
 
@@ -557,10 +670,6 @@ export async function getContainerParseResult(containerNo: string) {
   return { ...container, warehouse_summaries };
 }
 
-/**
- * 基于 delivery_items(is_history=false) 重新统计仓库汇总并写入 warehouse_summaries。
- * 先标记旧汇总为 history，再用 GROUP BY 聚合后批量插入。
- */
 async function rebuildWarehouseSummaries(
   tx: Prisma.TransactionClient,
   containerNos: string[],

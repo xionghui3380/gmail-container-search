@@ -13,11 +13,13 @@ import {
   searchEmailsByContainer,
   type EmailSearchResult,
 } from "@/lib/gmail";
-import { writeParseLog } from "@/lib/parse-log";
 import {
   handleParseDbWriteFailure,
   PARSE_DB_WRITE_FAILURE_MESSAGE,
+  type ParseDbFailureContext,
 } from "@/lib/parse-db-error";
+import { assertOrderNotParsing } from "@/lib/parse-lock";
+import { safeWriteParseLog } from "@/lib/parse-log";
 
 type OrderParseResult = {
   containerId: number;
@@ -47,14 +49,13 @@ type AttachmentParseResult = {
 };
 
 async function logStep(
-  tx: Prisma.TransactionClient | typeof prisma,
   ctx: ParseContext,
   step: string,
   status: "success" | "failed" | "warning",
   message?: string,
   attachmentId?: number,
 ) {
-  await writeParseLog(tx as Prisma.TransactionClient, {
+  await safeWriteParseLog({
     container_no: ctx.containerNo,
     container_id: ctx.containerId,
     attachment_id: attachmentId ?? null,
@@ -87,11 +88,15 @@ function aggregateSummaries(
   return Array.from(map.values());
 }
 
-function toDbFailureContext(ctx: ParseContext) {
+function toDbFailureContext(
+  ctx: ParseContext,
+  extra?: Partial<ParseDbFailureContext>,
+): ParseDbFailureContext {
   return {
     container_no: ctx.containerNo,
     container_id: ctx.containerId,
     batch_no: ctx.batchNo,
+    ...extra,
   };
 }
 
@@ -103,7 +108,7 @@ async function parseAndPersistAttachment(
   accessToken: string,
   refreshToken?: string,
 ): Promise<AttachmentParseResult> {
-  let buffer: Buffer;
+  let buffer: Buffer | null = null;
   try {
     buffer = await downloadAttachmentBuffer(
       messageId,
@@ -113,7 +118,7 @@ async function parseAndPersistAttachment(
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await logStep(prisma, ctx, "download_attachment", "failed", message);
+    await logStep(ctx, "download_attachment", "failed", message);
     return { itemCount: 0, warnings: [message], failed: true };
   }
 
@@ -122,14 +127,13 @@ async function parseAndPersistAttachment(
     parsed = await parseDeliveryFileBuffer(buffer, attachment.filename);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await logStep(prisma, ctx, "parse_excel", "failed", message);
+    await logStep(ctx, "parse_excel", "failed", message);
     return { itemCount: 0, warnings: [message], failed: true };
   }
 
   if (parsed.items.length === 0) {
     const message = "附件中无有效明细行";
     await logStep(
-      prisma,
       ctx,
       "parse_excel",
       "failed",
@@ -141,58 +145,67 @@ async function parseAndPersistAttachment(
   const warnMsg = parsed.warnings.length > 0 ? parsed.warnings.join("；") : null;
   const parseStatus = parsed.warnings.length > 0 ? "partial_success" : "success";
 
+  let attachmentRowId: number | undefined;
   try {
     await prisma.$transaction(
       async (tx) => {
         const attachmentRow = await tx.attachments.create({
-        data: {
-          container_id: ctx.containerId,
-          container_no: ctx.containerNo,
-          batch_no: ctx.batchNo,
-          attachment_name: attachment.filename,
-          file_content: buffer,
-          parse_status: "parsing",
-        },
-      });
-
-      const containerNos = Array.from(
-        new Set(parsed.items.map((i) => i.container_no).filter(Boolean)),
-      );
-      if (containerNos.length > 0) {
-        await tx.delivery_items.updateMany({
-          where: { container_no: { in: containerNos }, is_history: false },
-          data: { is_history: true },
-        });
-        await tx.warehouse_summaries.updateMany({
-          where: { container_no: { in: containerNos }, is_history: false },
-          data: { is_history: true },
-        });
-      }
-      await tx.delivery_items.createMany({
-        data: parsed.items.map((item) =>
-          deliveryItemToCreateInput(item, {
-            attachment_id: attachmentRow.id,
-            from_file_id: attachmentRow.id,
+          data: {
             container_id: ctx.containerId,
+            container_no: ctx.containerNo,
             batch_no: ctx.batchNo,
-          }),
-        ),
-      });
-      await rebuildWarehouseSummaries(tx, containerNos, ctx.batchNo);
-      await tx.attachments.update({
-        where: { id: attachmentRow.id },
-        data: { parse_status: parseStatus, error_message: warnMsg },
-      });
-    },
-    { maxWait: 10000, timeout: 60000 },
-  );
+            attachment_name: attachment.filename,
+            file_content: buffer,
+            parse_status: "parsing",
+          },
+        });
+        attachmentRowId = attachmentRow.id;
+
+        const containerNos = Array.from(
+          new Set(parsed.items.map((i) => i.container_no).filter(Boolean)),
+        );
+        if (containerNos.length > 0) {
+          await tx.delivery_items.updateMany({
+            where: { container_no: { in: containerNos }, is_history: false },
+            data: { is_history: true },
+          });
+          await tx.warehouse_summaries.updateMany({
+            where: { container_no: { in: containerNos }, is_history: false },
+            data: { is_history: true },
+          });
+        }
+        await tx.delivery_items.createMany({
+          data: parsed.items.map((item) =>
+            deliveryItemToCreateInput(item, {
+              attachment_id: attachmentRow.id,
+              from_file_id: attachmentRow.id,
+              container_id: ctx.containerId,
+              batch_no: ctx.batchNo,
+            }),
+          ),
+        });
+        await rebuildWarehouseSummaries(tx, containerNos, ctx.batchNo);
+        await tx.attachments.update({
+          where: { id: attachmentRow.id },
+          data: { parse_status: parseStatus, error_message: warnMsg },
+        });
+      },
+      { maxWait: 10000, timeout: 60000 },
+    );
 
     await logStep(
-      prisma,
       ctx,
       "parse_excel",
       parsed.warnings.length > 0 ? "warning" : "success",
       `附件 ${attachment.filename} 解析 ${parsed.items.length} 条明细`,
+      attachmentRowId,
+    );
+    await logStep(
+      ctx,
+      "save_database",
+      "success",
+      `附件 ${attachment.filename} 入库完成`,
+      attachmentRowId,
     );
 
     return {
@@ -203,8 +216,18 @@ async function parseAndPersistAttachment(
       attachmentName: attachment.filename,
     };
   } catch (err) {
-    const message = await handleParseDbWriteFailure(toDbFailureContext(ctx), err);
+    const message = await handleParseDbWriteFailure(
+      toDbFailureContext(ctx, {
+        attachment_name: attachment.filename,
+        email_message_id: messageId,
+        attachment_id: attachmentRowId ?? null,
+      }),
+      err,
+      { attachmentId: attachmentRowId },
+    );
     return { itemCount: 0, warnings: [message], failed: true };
+  } finally {
+    buffer = null;
   }
 }
 
@@ -217,6 +240,8 @@ export async function parseOrderFromGmail(
   if (!order) throw new Error("订单不存在");
 
   const containerNo = order.container_no.trim().toUpperCase();
+
+  await assertOrderNotParsing(orderId);
 
   const container = await prisma.containers.create({
     data: {
@@ -252,7 +277,7 @@ export async function parseOrderFromGmail(
     );
 
     if (emails.length === 0) {
-      await logStep(prisma, ctx, "search_email", "failed", "未找到相关邮件");
+      await logStep(ctx, "search_email", "failed", "未找到相关邮件");
       await prisma.containers.update({
         where: { id: container.id },
         data: {
@@ -277,7 +302,6 @@ export async function parseOrderFromGmail(
     const detail = await getEmailDetail(best.id, accessToken, refreshToken);
 
     await logStep(
-      prisma,
       ctx,
       "search_email",
       "success",
@@ -289,7 +313,6 @@ export async function parseOrderFromGmail(
     if (parseableAttachments.length === 0) {
       const attachmentNames = detail.attachments.map((a) => a.filename).join(", ");
       await logStep(
-        prisma,
         ctx,
         "check_attachment",
         "failed",
@@ -372,13 +395,14 @@ export async function parseOrderFromGmail(
       },
     });
 
-    await logStep(
-      prisma,
-      ctx,
-      "save_database",
-      parseStatus === "failed" ? "failed" : "success",
-      `解析完成：${totalItems} 条明细，${parseableAttachments.length} 个附件`,
-    );
+    if (parseStatus !== "failed") {
+      await logStep(
+        ctx,
+        "save_database",
+        "success",
+        `解析完成：${totalItems} 条明细，${parseableAttachments.length} 个附件`,
+      );
+    }
 
     return {
       containerId: container.id,
@@ -393,9 +417,7 @@ export async function parseOrderFromGmail(
       errorMessage: errorMessage ?? undefined,
     };
   } catch (err) {
-    const message = await handleParseDbWriteFailure(toDbFailureContext(ctx), err, {
-      updateContainer: true,
-    });
+    const message = await handleParseDbWriteFailure(toDbFailureContext(ctx), err);
     throw new Error(message);
   }
 }

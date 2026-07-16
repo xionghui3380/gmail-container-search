@@ -10,8 +10,10 @@ export type CargoParseFields = {
   email_date?: Date | null;
 };
 
+type DbClient = Prisma.TransactionClient | typeof prisma;
+
 async function findLatestContainer(
-  tx: Prisma.TransactionClient | typeof prisma,
+  tx: DbClient,
   containerNo: string,
 ) {
   return tx.containers.findFirst({
@@ -21,7 +23,7 @@ async function findLatestContainer(
 }
 
 export async function updateCargoParseFields(
-  tx: Prisma.TransactionClient | typeof prisma,
+  tx: DbClient,
   containerNo: string,
   data: CargoParseFields,
 ) {
@@ -49,7 +51,7 @@ export async function setCargoParsing(containerNo: string) {
 }
 
 export async function setCargoParseFailed(
-  tx: Prisma.TransactionClient,
+  tx: DbClient,
   containerNo: string,
   errorMessage: string,
   extra?: CargoParseFields,
